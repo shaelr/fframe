@@ -30,6 +30,7 @@ class ConfigActivity : AppCompatActivity() {
     private lateinit var projectSpinner: Spinner
     private lateinit var statusBarSwitch: Switch
     private lateinit var cellularSwitch: Switch
+    private lateinit var originalsSwitch: Switch
     private lateinit var permStatus: TextView
     private lateinit var statusText: TextView
     private lateinit var toggleBtn: Button
@@ -67,6 +68,7 @@ class ConfigActivity : AppCompatActivity() {
         projectSpinner = findViewById(R.id.projectSpinner)
         statusBarSwitch = findViewById(R.id.statusBarSwitch)
         cellularSwitch = findViewById(R.id.cellularSwitch)
+        originalsSwitch = findViewById(R.id.originalsSwitch)
         permStatus = findViewById(R.id.permStatus)
         statusText = findViewById(R.id.statusText)
         toggleBtn = findViewById(R.id.toggleBubbleBtn)
@@ -75,6 +77,7 @@ class ConfigActivity : AppCompatActivity() {
         deviceKey.setText(prefs.deviceKey)
         statusBarSwitch.isChecked = prefs.showStatusBar
         cellularSwitch.isChecked = prefs.allowCellular
+        originalsSwitch.isChecked = prefs.queueOriginals
         when (prefs.uploadMode) {
             Prefs.MODE_AUTO -> uploadMode.check(R.id.modeAuto)
             Prefs.MODE_OFF -> uploadMode.check(R.id.modeOff)
@@ -140,6 +143,7 @@ class ConfigActivity : AppCompatActivity() {
         prefs.deviceKey = deviceKey.text.toString()
         prefs.showStatusBar = statusBarSwitch.isChecked
         prefs.allowCellular = cellularSwitch.isChecked
+        prefs.queueOriginals = originalsSwitch.isChecked
         prefs.uploadMode = when (uploadMode.checkedRadioButtonId) {
             R.id.modeAuto -> Prefs.MODE_AUTO
             R.id.modeOff -> Prefs.MODE_OFF

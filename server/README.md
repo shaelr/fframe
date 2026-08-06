@@ -65,6 +65,18 @@ menu passa a listar a opção sozinho. Chaves que faltarem caem no português.
 - `data/` — dados em runtime (config, vídeos, logs, dispositivos, `comments.json`) — **não versionado**
 - `test-client.js` — simula um envio completo para testar o servidor sem celular
 
+### Onde os vídeos ficam (fluxo proxy → render)
+
+```
+data/
+├── uploads/<projeto>/<AAAA-MM-DD>/    # PROXIES (leves) — edição do dia a dia
+└── originals/<projeto>/<AAAA-MM-DD>/  # ORIGINAIS — aponte o editor aqui no render final
+```
+
+O app envia o proxy na hora e guarda o original numa fila separada; depois, no Wi-Fi, você processa
+essa fila e os originais sobem para `originals/` (`POST /_ingest?kind=original`). No editor, corte com
+os proxies e troque para a pasta `originals/` antes de renderizar.
+
 ## Segurança
 
 - Painel protegido por login (bcrypt + sessão httpOnly/secure/sameSite).

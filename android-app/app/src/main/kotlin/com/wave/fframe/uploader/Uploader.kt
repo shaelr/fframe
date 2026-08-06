@@ -11,7 +11,11 @@ object Uploader {
 
     data class Result(val ok: Boolean, val code: Int, val message: String)
 
-    fun upload(context: Context, uri: Uri, name: String, prefs: Prefs): Result {
+    /** Envia direto de um Uri do MediaStore (usado para o ORIGINAL, sem transcodificar). */
+    fun upload(
+        context: Context, uri: Uri, name: String, prefs: Prefs,
+        projectId: String = prefs.projectId, kind: String = Queue.KIND_PROXY
+    ): Result {
         val base = prefs.serverUrl
         if (base.isEmpty() || prefs.deviceKey.isEmpty())
             return Result(false, 0, "Servidor ou chave não configurados")
@@ -19,8 +23,9 @@ object Uploader {
         val resolver = context.contentResolver
         val size = querySize(context, uri)
         val encodedName = Uri.encode(name)
-        val projParam = if (prefs.projectId.isNotEmpty()) "&project=${Uri.encode(prefs.projectId)}" else ""
-        val url = URL("$base/_ingest?name=$encodedName$projParam")
+        val projParam = if (projectId.isNotEmpty()) "&project=${Uri.encode(projectId)}" else ""
+        val kindParam = if (kind == Queue.KIND_ORIGINAL) "&kind=original" else ""
+        val url = URL("$base/_ingest?name=$encodedName$projParam$kindParam")
 
         var conn: HttpURLConnection? = null
         return try {
@@ -28,7 +33,7 @@ object Uploader {
                 requestMethod = "POST"
                 doOutput = true
                 connectTimeout = 30_000
-                readTimeout = 300_000
+                readTimeout = 1_800_000 // originais podem ser grandes
                 setRequestProperty("X-Device-Key", prefs.deviceKey)
                 setRequestProperty("Content-Type", "video/mp4")
                 if (size > 0) setFixedLengthStreamingMode(size)
@@ -73,6 +78,16 @@ object Uploader {
         } catch (e: Exception) {
             Result(false, -1, e.message ?: "falha de rede")
         } finally { conn?.disconnect() }
+    }
+
+    /**
+     * O arquivo ainda existe? Entradas do MediaStore podem sumir (video apagado,
+     * ou registro "fantasma" que alguns apps de camera criam ao abrir).
+     */
+    fun uriExists(context: Context, uri: Uri): Boolean {
+        return try {
+            context.contentResolver.openFileDescriptor(uri, "r")?.use { true } ?: false
+        } catch (e: Exception) { false }
     }
 
     private fun querySize(context: Context, uri: Uri): Long {

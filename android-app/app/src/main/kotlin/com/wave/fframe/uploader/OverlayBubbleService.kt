@@ -350,10 +350,21 @@ class OverlayBubbleService : Service() {
     }
 
     // ---- Upload -------------------------------------------------------------
-    private fun queueItem(uri: Uri, name: String) =
-        Queue.Item(uri.toString(), name, prefs.projectId, prefs.projectName, prefs.proxyQuality)
+    private fun queueItem(uri: Uri, name: String, kind: String = Queue.KIND_PROXY) =
+        Queue.Item(uri.toString(), name, prefs.projectId, prefs.projectName, prefs.proxyQuality, kind)
+
+    /** Guarda o ORIGINAL na fila para enviar depois (render final no editor). */
+    private fun queueOriginalIfEnabled(uri: Uri, name: String) {
+        if (!prefs.queueOriginals) return
+        Queue.add(applicationContext, queueItem(uri, name, Queue.KIND_ORIGINAL))
+    }
 
     private fun doUpload(uri: Uri, name: String) {
+        // Arquivo ja sumiu (registro fantasma de alguns apps de camera): nao insiste
+        if (!Uploader.uriExists(this, uri)) {
+            toast("✗ $name: arquivo não está mais disponível")
+            return
+        }
         // Sem permissao de rede (ex.: dados moveis desativados) -> vai pra fila
         if (!Net.canUploadNow(this, prefs)) {
             Queue.add(applicationContext, queueItem(uri, name))
@@ -377,8 +388,11 @@ class OverlayBubbleService : Service() {
                 runCatching { proxyFile.delete() }
                 withContext(Dispatchers.Main) {
                     activeUploads = (activeUploads - 1).coerceAtLeast(0)
-                    if (res.ok) { setStatusDot(R.color.success); toast("✓ $name enviado") }
-                    else {
+                    if (res.ok) {
+                        setStatusDot(R.color.success)
+                        queueOriginalIfEnabled(uri, name)
+                        toast("✓ $name enviado" + if (prefs.queueOriginals) " (original na fila)" else "")
+                    } else {
                         setStatusDot(R.color.danger)
                         // falha de envio (rede) -> vai pra fila de reenvio
                         Queue.add(applicationContext, queueItem(uri, name))

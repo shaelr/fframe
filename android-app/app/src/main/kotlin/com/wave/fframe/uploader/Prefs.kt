@@ -47,6 +47,14 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("allowCellular", false)
         set(v) = sp.edit().putBoolean("allowCellular", v).apply()
 
+    /**
+     * Ao enviar o proxy, guardar o ORIGINAL na fila para enviar depois
+     * (ex.: em casa, no Wi-Fi) e usar no render final.
+     */
+    var queueOriginals: Boolean
+        get() = sp.getBoolean("queueOriginals", true)
+        set(v) = sp.edit().putBoolean("queueOriginals", v).apply()
+
     fun isConfigured() = serverUrl.isNotEmpty() && deviceKey.isNotEmpty()
 
     companion object {

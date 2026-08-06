@@ -36,6 +36,10 @@ class MainActivity : AppCompatActivity() {
     private var currentProjectName: String = "Todos os vídeos"
     private var onQueueTab = false
     private var processing = false
+    /** Sub-aba da fila: false = proxies, true = originais (listas separadas). */
+    private var onOriginalsSubTab = false
+    private lateinit var subTabProxy: TextView
+    private lateinit var subTabOriginal: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,6 +56,11 @@ class MainActivity : AppCompatActivity() {
         queueList = findViewById(R.id.queueList)
         queueStatus = findViewById(R.id.queueStatus)
         processBtn = findViewById(R.id.processBtn)
+        subTabProxy = findViewById(R.id.subTabProxy)
+        subTabOriginal = findViewById(R.id.subTabOriginal)
+        // trocar de sub-aba e permitido mesmo processando (so visualiza a outra lista)
+        subTabProxy.setOnClickListener { onOriginalsSubTab = false; renderQueue() }
+        subTabOriginal.setOnClickListener { onOriginalsSubTab = true; renderQueue() }
 
         findViewById<TextView>(R.id.configFab).setOnClickListener { openConfig() }
         findViewById<Button>(R.id.goConfig).setOnClickListener { openConfig() }
@@ -62,7 +71,8 @@ class MainActivity : AppCompatActivity() {
         tabQueue.setOnClickListener { showTab(true) }
         processBtn.setOnClickListener { processQueue() }
         findViewById<Button>(R.id.clearQueueBtn).setOnClickListener {
-            if (!processing) { Queue.clear(this); renderQueue() }
+            // limpa apenas a lista da sub-aba atual
+            if (!processing) { Queue.clear(this, if (onOriginalsSubTab) Queue.KIND_ORIGINAL else Queue.KIND_PROXY); renderQueue() }
         }
     }
 
@@ -109,8 +119,12 @@ class MainActivity : AppCompatActivity() {
         val inflater = LayoutInflater.from(this)
         for (a in assets) {
             val row = inflater.inflate(R.layout.video_row, videoList, false)
-            row.findViewById<TextView>(R.id.rowName).text = a.name
-            row.findViewById<TextView>(R.id.rowDate).text = a.date
+            val isOriginal = a.kind == Queue.KIND_ORIGINAL
+            row.findViewById<TextView>(R.id.rowName).text = (if (isOriginal) "★ " else "") + a.name
+            row.findViewById<TextView>(R.id.rowDate).apply {
+                text = if (isOriginal) "${a.date} • ORIGINAL" else a.date
+                setTextColor(getColor(if (isOriginal) R.color.royal else R.color.muted))
+            }
             row.findViewById<TextView>(R.id.rowPlay).setOnClickListener { play(a) }
             row.setOnClickListener { play(a) }
             row.findViewById<TextView>(R.id.rowDelete).setOnClickListener { deleteVideo(a) }
@@ -191,12 +205,35 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Fila / Processamento ----------------------------------------------
     private fun renderQueue() {
-        val items = Queue.all(this)
-        queueList.removeAllViews()
+        val kind = if (onOriginalsSubTab) Queue.KIND_ORIGINAL else Queue.KIND_PROXY
+        val items = Queue.of(this, kind)
+        val nProxy = Queue.of(this, Queue.KIND_PROXY).size
+        val nOrig = Queue.of(this, Queue.KIND_ORIGINAL).size
+
+        // sub-abas com contagem e destaque
+        subTabProxy.text = if (nProxy > 0) "Proxies ($nProxy)" else "Proxies"
+        subTabOriginal.text = if (nOrig > 0) "Originais ($nOrig)" else "Originais"
+        subTabProxy.background = ContextCompat.getDrawable(this, if (onOriginalsSubTab) R.drawable.btn_ghost else R.drawable.btn_primary)
+        subTabProxy.setTextColor(getColor(if (onOriginalsSubTab) R.color.muted else R.color.ink))
+        subTabOriginal.background = ContextCompat.getDrawable(this, if (onOriginalsSubTab) R.drawable.btn_primary else R.drawable.btn_ghost)
+        subTabOriginal.setTextColor(getColor(if (onOriginalsSubTab) R.color.ink else R.color.muted))
+
+        processBtn.text = if (onOriginalsSubTab) "Enviar originais" else "Enviar proxies"
         processBtn.isEnabled = items.isNotEmpty() && !processing
+
+        queueList.removeAllViews()
         if (items.isEmpty()) {
-            queueList.addView(hintRow("Fila vazia.\nVídeos adicionados (botão \"Fila\") ou que falharam ao enviar aparecem aqui."))
+            queueList.addView(hintRow(
+                if (onOriginalsSubTab) "Nenhum original na fila.\nApós enviar um proxy, o original fica guardado aqui para o render."
+                else "Nenhum proxy na fila.\nVídeos do botão \"Fila\" e envios que falharam aparecem aqui."
+            ))
+            if (!processing) queueStatus.text = ""
             return
+        }
+        if (!processing) {
+            queueStatus.text = if (onOriginalsSubTab)
+                "$nOrig original(is) — arquivos grandes: envie no Wi-Fi."
+            else "$nProxy proxy(ies) na fila."
         }
         for (item in items) queueList.addView(queueRow(item))
     }
@@ -209,26 +246,45 @@ class MainActivity : AppCompatActivity() {
         card.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = 20 }
         val info = LinearLayout(this); info.orientation = LinearLayout.VERTICAL
         info.layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        val n = TextView(this); n.text = item.name; n.setTextColor(getColor(R.color.ink)); n.textSize = 14f; n.maxLines = 1
+        val isOriginal = item.kind == Queue.KIND_ORIGINAL
+        val n = TextView(this)
+        n.text = (if (isOriginal) "★ " else "") + item.name
+        n.setTextColor(getColor(R.color.ink)); n.textSize = 14f; n.maxLines = 1
         val p = TextView(this)
-        p.text = (item.projectName.ifEmpty { "Projeto padrão" }) + " • " + Prefs.proxyLabel(item.quality)
-        p.setTextColor(getColor(R.color.muted)); p.textSize = 12f
+        p.text = (item.projectName.ifEmpty { "Projeto padrão" }) + " • " +
+            (if (isOriginal) "ORIGINAL (render)" else "proxy " + Prefs.proxyLabel(item.quality))
+        p.setTextColor(getColor(if (isOriginal) R.color.royal else R.color.muted)); p.textSize = 12f
         info.addView(n); info.addView(p)
         val del = TextView(this); del.text = "✕"; del.setTextColor(getColor(R.color.muted)); del.textSize = 16f
         del.setPadding(24, 8, 8, 8)
-        del.setOnClickListener { if (!processing) { Queue.remove(this, item.uri); renderQueue() } }
+        del.setOnClickListener { if (!processing) { Queue.remove(this, item.uri, item.kind); renderQueue() } }
         card.addView(info); card.addView(del)
         return card
     }
 
     private fun processQueue() {
         if (processing) return
-        val items = Queue.all(this)
+        val kind = if (onOriginalsSubTab) Queue.KIND_ORIGINAL else Queue.KIND_PROXY
+        val items = Queue.of(this, kind) // SÓ a lista da sub-aba atual
         if (items.isEmpty()) { toast("Fila vazia"); return }
         if (!prefs.isConfigured()) { toast("Configure servidor e chave"); return }
         if (!Net.canUploadNow(this, prefs)) {
             toast("Sem conexão permitida (Wi-Fi ou dados móveis desativados)"); return
         }
+        // originais são pesados: confirma se não estiver no Wi-Fi
+        if (onOriginalsSubTab && !Net.isWifi(this)) {
+            AlertDialog.Builder(this)
+                .setTitle("Enviar originais sem Wi-Fi?")
+                .setMessage("Você está em dados móveis. Os originais são arquivos grandes e podem consumir bastante da sua franquia.")
+                .setNegativeButton("Cancelar", null)
+                .setPositiveButton("Enviar mesmo assim") { _, _ -> startProcessing(items) }
+                .show()
+            return
+        }
+        startProcessing(items)
+    }
+
+    private fun startProcessing(items: List<Queue.Item>) {
         processing = true; processBtn.isEnabled = false
         processNext(items, 0, 0)
     }
@@ -241,16 +297,46 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val item = items[i]
+        val uri = android.net.Uri.parse(item.uri)
+
+        // Arquivo sumiu do celular (apagado ou registro fantasma): tira da fila
+        if (!Uploader.uriExists(this, uri)) {
+            Queue.remove(this, item.uri, item.kind)
+            queueStatus.text = "${item.name}: arquivo não existe mais — removido da fila."
+            renderQueue()
+            processNext(items, i + 1, success)
+            return
+        }
+
+        // ORIGINAL: envia o arquivo como está (sem transcodificar)
+        if (item.kind == Queue.KIND_ORIGINAL) {
+            queueStatus.text = "Enviando ORIGINAL ${i + 1}/${items.size}: ${item.name}…"
+            thread {
+                val res = Uploader.upload(this, uri, item.name, prefs,
+                    item.projectId, Queue.KIND_ORIGINAL)
+                runOnUiThread {
+                    if (res.ok) { Queue.remove(this, item.uri, item.kind); processNext(items, i + 1, success + 1) }
+                    else processNext(items, i + 1, success)
+                }
+            }
+            return
+        }
+
+        // PROXY: transcodifica no aparelho e envia
         queueStatus.text = "Processando ${i + 1}/${items.size}: ${item.name} (proxy)…"
-        ProxyMaker.make(this, android.net.Uri.parse(item.uri), item.quality) { proxyFile ->
+        ProxyMaker.make(this, uri, item.quality) { proxyFile ->
             if (proxyFile == null) { queueStatus.text = "Falha no proxy de ${item.name} — pulando."; processNext(items, i + 1, success); return@make }
             queueStatus.text = "Enviando ${item.name}…"
             thread {
                 val res = Uploader.uploadFile(proxyFile, item.name, prefs, item.projectId)
                 runCatching { proxyFile.delete() }
                 runOnUiThread {
-                    if (res.ok) { Queue.remove(this, item.uri); processNext(items, i + 1, success + 1) }
-                    else processNext(items, i + 1, success)
+                    if (res.ok) {
+                        Queue.remove(this, item.uri, item.kind)
+                        // guarda o original para o render final, se ativado
+                        if (prefs.queueOriginals) Queue.add(this, item.copy(kind = Queue.KIND_ORIGINAL))
+                        processNext(items, i + 1, success + 1)
+                    } else processNext(items, i + 1, success)
                 }
             }
         }

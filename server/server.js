@@ -479,6 +479,7 @@ app.get("/_api/assets", requireAuth, (req, res) => {
     .map((a) => ({
       id: a.id, name: a.name, project_id: a.project_id, project_name: a.project_name,
       filesize: a.filesize, filetype: a.filetype, device_name: a.device_name,
+      kind: a.kind || "proxy",
       uploaded_at: a.uploaded_at || a.created_at,
       date: (a.uploaded_at || a.created_at || "").slice(0, 10),
       comment_count: store.countComments(a.id),
@@ -563,10 +564,12 @@ app.post("/_ingest", (req, res) => {
   const name = req.query.name || "video.mp4";
   const filetype = req.headers["content-type"] || "video/mp4";
   const projectId = req.query.project;
+  // proxy (padrao) vai p/ uploads/ ; original vai p/ originals/ (render final)
+  const kind = req.query.kind === "original" ? "original" : "proxy";
   let bytes = 0;
   let responded = false;
   store.ingestAsset(
-    { name, filetype, projectId, deviceName: dev.name },
+    { name, filetype, projectId, deviceName: dev.name, kind },
     (finalPath, onDone) => {
       const out = fs.createWriteStream(finalPath);
       req.on("data", (c) => { bytes += c.length; });
@@ -575,7 +578,7 @@ app.post("/_ingest", (req, res) => {
       out.on("error", (e) => { log(`    ERRO ingest: ${e.message}`); if (!responded) { responded = true; res.status(500).json({ ok: false }); } });
     },
     (asset) => {
-      log(`    INGEST (app): "${asset.name}" ${asset.filesize} bytes projeto="${asset.project_name}" dispositivo="${dev.name}"`);
+      log(`    INGEST (app/${asset.kind}): "${asset.name}" ${asset.filesize} bytes projeto="${asset.project_name}" dispositivo="${dev.name}"`);
       if (!responded) { responded = true; res.status(201).json({ ok: true, id: asset.id, name: asset.name }); }
     }
   );

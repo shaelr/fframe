@@ -9,7 +9,7 @@ import java.net.URL
 object Api {
 
     data class Project(val id: String, val name: String, val videoCount: Int)
-    data class Asset(val id: String, val name: String, val date: String)
+    data class Asset(val id: String, val name: String, val date: String, val kind: String = "proxy")
 
     fun projects(prefs: Prefs): List<Project> {
         val body = get(prefs, "/_api/projects") ?: return emptyList()
@@ -28,7 +28,8 @@ object Api {
             val arr = JSONArray(body)
             (0 until minOf(arr.length(), limit)).map {
                 val o = arr.getJSONObject(it)
-                Asset(o.getString("id"), o.optString("name", "video"), o.optString("date", ""))
+                Asset(o.getString("id"), o.optString("name", "video"), o.optString("date", ""),
+                    o.optString("kind", "proxy"))
             }
         } catch (e: Exception) { emptyList() }
     }
@@ -40,7 +41,8 @@ object Api {
             val arr = JSONArray(body)
             (0 until arr.length()).map {
                 val o = arr.getJSONObject(it)
-                Asset(o.getString("id"), o.optString("name", "video"), o.optString("date", ""))
+                Asset(o.getString("id"), o.optString("name", "video"), o.optString("date", ""),
+                    o.optString("kind", "proxy"))
             }
         } catch (e: Exception) { emptyList() }
     }

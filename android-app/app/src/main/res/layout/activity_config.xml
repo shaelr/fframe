@@ -82,6 +82,20 @@
                 android:layout_width="wrap_content" android:layout_height="wrap_content" />
         </LinearLayout>
 
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="16dp">
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                android:orientation="vertical" android:layout_marginEnd="10dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Guardar originais para enviar depois" android:textColor="@color/ink" android:textSize="15sp" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Após enviar o proxy, o original entra na fila (envie no Wi-Fi para o render final)"
+                    android:textColor="@color/muted" android:textSize="12sp" />
+            </LinearLayout>
+            <Switch android:id="@+id/originalsSwitch"
+                android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        </LinearLayout>
+
         <Button android:id="@+id/saveBtn" style="@style/Primary" android:text="Salvar configurações" />
 
         <View android:layout_width="match_parent" android:layout_height="1dp"

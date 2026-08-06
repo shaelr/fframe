@@ -7,6 +7,9 @@ const crypto = require("crypto");
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const UPLOADS_DIR = path.join(DATA_DIR, "uploads");
+// Originais em arvore separada: e essa pasta que o editor de video aponta na
+// hora de renderizar (proxies ficam em uploads/, originais em originals/).
+const ORIGINALS_DIR = path.join(DATA_DIR, "originals");
 const PARTS_DIR = path.join(UPLOADS_DIR, ".parts"); // pedacos temporarios
 const CONFIG_FILE = path.join(DATA_DIR, "config.json");
 const ASSETS_FILE = path.join(DATA_DIR, "assets.json");
@@ -186,7 +189,9 @@ const partPath = (id, i) => path.join(PARTS_DIR, id, `part_${i}`);
 // Caminho final unico: uploads/<projeto>/<data>/<arquivo>
 function finalPathFor(asset) {
   const date = new Date().toISOString().slice(0, 10);
-  const dir = path.join(UPLOADS_DIR, slug(asset.project_name), date);
+  // Proxy -> uploads/<projeto>/<data>/ ; Original -> originals/<projeto>/<data>/
+  const base = asset.kind === "original" ? ORIGINALS_DIR : UPLOADS_DIR;
+  const dir = path.join(base, slug(asset.project_name), date);
   fs.mkdirSync(dir, { recursive: true });
   const safe = (asset.name || "clip.mov").replace(/[^a-zA-Z0-9._-]/g, "_");
   let p = path.join(dir, safe);
@@ -285,12 +290,13 @@ function findDeviceByKey(key) {
 
 // Recebe um video ja completo (upload direto do app), grava e cataloga.
 // Retorna o objeto asset. `writeStream(finalPath)` faz a gravacao do corpo.
-function ingestAsset({ name, filetype, projectId, deviceName }, writeFn, done) {
+function ingestAsset({ name, filetype, projectId, deviceName, kind }, writeFn, done) {
   const proj = getProject(projectId) || getConnectedProject();
   const id = uuid();
   const asset = {
     id, project_id: proj.id, project_name: proj.name, parent_id: proj.root_asset_id,
     name: name || "video.mp4", type: "file", filetype: filetype || "video/mp4",
+    kind: kind === "original" ? "original" : "proxy",
     filesize: 0, expected_parts: 1, received_parts: [0], status: "uploading",
     created_at: new Date().toISOString(), source: "fframe-app",
     device_name: deviceName || undefined,
@@ -319,7 +325,7 @@ function deleteAsset(id) {
 }
 
 module.exports = {
-  DATA_DIR, UPLOADS_DIR, PARTS_DIR, config, uuid, slug,
+  DATA_DIR, UPLOADS_DIR, ORIGINALS_DIR, PARTS_DIR, config, uuid, slug,
   getSessionSecret, getAuth, isConfigured, setAuth, deleteAsset,
   getDeviceKey, ingestAsset,
   listDevices, createDevice, revokeDevice, findDeviceByKey,

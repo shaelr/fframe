@@ -59,6 +59,20 @@
         <LinearLayout android:id="@+id/queueView" android:layout_width="match_parent"
             android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical"
             android:visibility="gone">
+
+            <!-- Sub-abas: proxies e originais sao filas SEPARADAS (originais sao pesados) -->
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="horizontal" android:layout_marginBottom="10dp">
+                <TextView android:id="@+id/subTabProxy" android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginEnd="6dp" android:text="Proxies"
+                    android:gravity="center" android:paddingVertical="10dp" android:textSize="13sp"
+                    android:textColor="@color/ink" android:background="@drawable/btn_primary" />
+                <TextView android:id="@+id/subTabOriginal" android:layout_width="0dp" android:layout_height="wrap_content"
+                    android:layout_weight="1" android:layout_marginStart="6dp" android:text="Originais"
+                    android:gravity="center" android:paddingVertical="10dp" android:textSize="13sp"
+                    android:textColor="@color/muted" android:background="@drawable/btn_ghost" />
+            </LinearLayout>
+
             <TextView android:id="@+id/queueStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:textColor="@color/muted" android:textSize="13sp" android:layout_marginBottom="10dp" android:text="" />
             <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">

@@ -65,6 +65,18 @@ dropdown lists it automatically. Missing keys fall back to Portuguese.
 - `data/` — runtime data (config, videos, logs, devices, `comments.json`) — **not versioned**
 - `test-client.js` — simulates a full upload to test the server without a phone
 
+### Where videos live (proxy → render workflow)
+
+```
+data/
+├── uploads/<project>/<YYYY-MM-DD>/    # PROXIES (light) — day-to-day editing
+└── originals/<project>/<YYYY-MM-DD>/  # ORIGINALS — point your editor here for the final render
+```
+
+The app uploads the proxy right away and keeps the original in a separate queue; later, on Wi-Fi, you
+process that queue and the originals go to `originals/` (`POST /_ingest?kind=original`). Edit with the
+proxies, then relink to the `originals/` folder before rendering.
+
 ## Security
 
 - Panel protected by login (bcrypt + httpOnly/secure/sameSite session).
