@@ -80,14 +80,9 @@ Routes: `GET /_api/assets/:id/transcript` (login), `PUT`/`PATCH`/`DELETE` same p
 - `POST /_api/resolve/import` (session or device key): `{ files: [{ filename, content }], fps?, project_id? }`. Same matching as **Import transcripts**, but across all projects. Used by `tools/resolve/Export to Fframe.py` to upload transcripts and markers directly.
 - `GET /_api/assets/:id/markers.edl?fps=&start=`: a marker EDL for **Timeline → Import → Timeline Markers from EDL**. The player's **⤓ Resolve** button downloads it.
 
-## Panel languages
+## Panel language
 
-The panel ships in **Portuguese** and **English**, with a dropdown on the login screen and in the
-sidebar (your choice is saved in the browser; on first visit it follows your browser's language).
-The Android app remains **Portuguese-only**.
-
-To add a language, copy a block in `public/i18n.js`, translate the values, and that's it — the
-dropdown lists it automatically. Missing keys fall back to Portuguese.
+This build of the panel is **English-only**. All text lives in `public/i18n.js` (`t("key")`). The Android app is still Portuguese-only.
 
 ## Structure
 
