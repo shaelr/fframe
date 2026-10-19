@@ -19,6 +19,8 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const store = require("./lib/store");
+const library = require("./lib/library");
+const transcript = require("./lib/transcript");
 
 const PORT = process.env.PORT || 3000;
 // Base publica usada para montar as upload_urls. Em producao aponte para o host
@@ -122,7 +124,7 @@ app.use((req, res, next) => {
     return express.urlencoded({ extended: true })(req, res, next);
   }
   // JSON tolerante: parseia application/json E tambem body sem content-type.
-  return express.json({ type: () => true, limit: "10mb" })(req, res, (err) => {
+  return express.json({ type: () => true, limit: "40mb" })(req, res, (err) => {
     if (err) req.body = {}; // se nao for JSON valido, segue com body vazio
     next();
   });
@@ -469,6 +471,7 @@ app.post("/_api/projects", requireAuth, (req, res) => {
 });
 app.delete("/_api/projects/:id", requireAuth, (req, res) => {
   const ok = store.deleteProject(req.params.id);
+  if (ok) library.dropLinksForProject(req.params.id);
   res.status(ok ? 200 : 400).json({ ok, error: ok ? undefined : "nao pode remover (ultimo projeto ou inexistente)" });
 });
 app.get("/_api/assets", requireAuth, (req, res) => {
@@ -480,16 +483,25 @@ app.get("/_api/assets", requireAuth, (req, res) => {
       id: a.id, name: a.name, project_id: a.project_id, project_name: a.project_name,
       filesize: a.filesize, filetype: a.filetype, device_name: a.device_name,
       kind: a.kind || "proxy",
+      source: a.source || "upload", library_folder: a.library_folder,
       uploaded_at: a.uploaded_at || a.created_at,
       date: (a.uploaded_at || a.created_at || "").slice(0, 10),
       comment_count: store.countComments(a.id),
+      has_transcript: transcript.has(a.id),
     }))
     .sort((x, y) => String(y.uploaded_at).localeCompare(String(x.uploaded_at)));
   res.json(list);
 });
-// Excluir video (apaga o arquivo do disco tambem)
+// Excluir video (apaga o arquivo do disco tambem). Video da biblioteca so sai
+// do Fframe — o arquivo no NAS nunca e apagado (e exige sessao de admin).
 app.delete("/_api/assets/:id", requireAuth, (req, res) => {
   const a = store.getAsset(req.params.id);
+  if (a && a.source === "library") {
+    if (!(req.session && req.session.authed) || req.device) return res.status(401).json({ error: "requer login no painel" });
+    library.hideAsset(a);
+    log(`    BIBLIOTECA: video removido do Fframe (arquivo mantido): "${a.name}"`);
+    return res.json({ ok: true });
+  }
   const ok = store.deleteAsset(req.params.id);
   if (ok) log(`    VIDEO EXCLUIDO: "${a && a.name}" (${req.params.id})`);
   res.status(ok ? 200 : 404).json({ ok });
@@ -515,6 +527,128 @@ app.patch("/_api/assets/:id/comments/:cid", requireAuth, (req, res) => {
 app.delete("/_api/assets/:id/comments/:cid", requireAuth, (req, res) => {
   const ok = store.deleteComment(req.params.id, req.params.cid);
   res.status(ok ? 200 : 404).json({ ok });
+});
+
+// ---- Transcricoes (clicar no texto -> vai para o ponto do video) ------------
+app.get("/_api/assets/:id/transcript", requireAuth, (req, res) => {
+  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
+  const tr = transcript.forPlayer(req.params.id);
+  if (!tr) return res.status(404).json({ error: "sem transcricao" });
+  res.json(tr);
+});
+// Corpo: { filename, content, fps } (o painel le o arquivo e manda o texto).
+app.put("/_api/assets/:id/transcript", requireAdminSession, (req, res) => {
+  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
+  const b = req.body || {};
+  const r = transcript.parse(b.content, { filename: b.filename, fps: b.fps });
+  if (r.error) return res.status(400).json({ error: r.error });
+  const out = transcript.apply(req.params.id, r, { source: "upload" });
+  log(`    TRANSCRICAO: "${b.filename}" -> ${req.params.id} (${r.kind}, ${r.segments.length} trechos, ${out.markers} marcadores)`);
+  res.json({ markers: out.markers, transcript: out.transcript ? transcript.forPlayer(req.params.id) : null });
+});
+app.patch("/_api/assets/:id/transcript", requireAdminSession, (req, res) => {
+  const d = transcript.update(req.params.id, req.body || {});
+  if (!d) return res.status(404).json({ error: "sem transcricao" });
+  res.json(transcript.forPlayer(req.params.id));
+});
+app.delete("/_api/assets/:id/transcript", requireAdminSession, (req, res) =>
+  res.json({ ok: transcript.remove(req.params.id) }));
+// Casa cada arquivo { filename, content } com os videos de mesmo nome em `vids`
+// e aplica (transcricao + marcadores). Usado pelo painel e pelo script do Resolve.
+function importFiles(vids, files, fps) {
+  const byKey = new Map();
+  vids.forEach((a) => { const k = transcript.matchKey(a.name); (byKey.get(k) || byKey.set(k, []).get(k)).push(a); });
+  return (Array.isArray(files) ? files : []).slice(0, 500).map((f) => {
+    const targets = byKey.get(transcript.matchKey(f.filename)) || [];
+    if (!targets.length) return { filename: f.filename, ok: false, error: "nenhum video com esse nome" };
+    const r = transcript.parse(f.content, { filename: f.filename, fps });
+    if (r.error) return { filename: f.filename, ok: false, error: r.error };
+    let markers = 0;
+    targets.forEach((a) => { markers = transcript.apply(a.id, r, { source: "upload" }).markers; });
+    return {
+      filename: f.filename, ok: true, transcript: r.segments.length > 0, markers,
+      videos: targets.map((a) => ({ name: a.name, project: a.project_name })),
+    };
+  });
+}
+
+// Varias de uma vez: casa cada arquivo com o video de mesmo nome no projeto.
+// Corpo: { fps, files: [{ filename, content }] }
+app.post("/_api/projects/:id/transcripts", requireAdminSession, (req, res) => {
+  if (!store.getProject(req.params.id)) return res.status(404).json({ error: "projeto inexistente" });
+  const b = req.body || {};
+  const vids = Object.values(store.assets()).filter((a) => a.project_id === req.params.id && a.status === "uploaded");
+  const results = importFiles(vids, b.files, b.fps).map((r) => ({ ...r, videos: r.videos && r.videos.map((v) => v.name) }));
+  log(`    TRANSCRICOES em lote: ${results.filter((r) => r.ok).length}/${results.length} casadas`);
+  res.json({ results });
+});
+
+// Envio direto do script "Export to Fframe" (device key): procura o video de
+// mesmo nome em TODOS os projetos (ou so em `project_id`, se vier).
+app.post("/_api/resolve/import", requireAuth, (req, res) => {
+  const b = req.body || {};
+  let vids = Object.values(store.assets()).filter((a) => a.status === "uploaded");
+  if (b.project_id) vids = vids.filter((a) => a.project_id === b.project_id);
+  const results = importFiles(vids, b.files, b.fps);
+  const who = req.device ? `dispositivo "${req.device.name}"` : "painel";
+  log(`    RESOLVE -> Fframe (${who}): ${results.filter((r) => r.ok).length}/${results.length} clipes casados`);
+  res.json({ results });
+});
+
+// ---- Comentarios -> DaVinci Resolve -----------------------------------------
+// Feed para o script "Import Fframe Comments" (tools/resolve). Aceita sessao ou
+// device key (crie um dispositivo "Resolve" no painel). Comentarios que vieram
+// do proprio Resolve (marcadores) sao marcados `from_resolve` p/ nao voltarem.
+app.get("/_api/resolve/comments", requireAuth, (req, res) => {
+  let list = Object.values(store.assets()).filter((a) => a.status === "uploaded");
+  if (req.query.project) list = list.filter((a) => a.project_id === req.query.project);
+  res.json(list.filter((a) => store.countComments(a.id)).map((a) => {
+    const all = store.listComments(a.id);
+    return {
+      asset_id: a.id, name: a.name, project_id: a.project_id, project_name: a.project_name,
+      library_folder: a.library_folder || null,
+      comments: all.filter((c) => !c.parent_id).map((c) => ({
+        id: c.id, t: c.t, t_end: c.t_end, text: c.text, author: authorName(c.author), resolved: !!c.resolved,
+        created_at: c.created_at, from_resolve: c.source === "resolve",
+        replies: all.filter((r) => r.parent_id === c.id).map((r) => ({ author: authorName(r.author), text: r.text, created_at: r.created_at })),
+      })),
+    };
+  }));
+});
+const authorName = (a) => (a ? String(a).replace(/^device:/, "") : "Fframe");
+
+// EDL de marcadores (sem script): Resolve > Timeline > Import > Timeline
+// Markers from EDL. ?fps=24&start=01:00:00:00 (inicio da timeline).
+app.get("/_api/assets/:id/markers.edl", requireAuth, (req, res) => {
+  const a = store.getAsset(req.params.id);
+  if (!a) return res.status(404).end();
+  const fps = transcript.FPS_OK.includes(Number(req.query.fps)) ? Number(req.query.fps) : 24;
+  const base = Math.round(fps);
+  const m = /^(\d{1,2}):(\d{2}):(\d{2})[:;](\d{2})$/.exec(String(req.query.start || "01:00:00:00"));
+  const startF = m ? ((+m[1] * 60 + +m[2]) * 60 + +m[3]) * base + +m[4] : 3600 * base;
+  const tc = (f) => {
+    const p = (n) => String(n).padStart(2, "0");
+    const ff = f % base, s = Math.floor(f / base);
+    return `${p(Math.floor(s / 3600))}:${p(Math.floor(s / 60) % 60)}:${p(s % 60)}:${p(ff)}`;
+  };
+  const all = store.listComments(a.id);
+  const clean = (s) => String(s || "").replace(/\s*[\r\n|]+\s*/g, " ").trim();
+  const lines = [`TITLE: ${clean(a.name)} - Fframe comments`, "FCM: NON-DROP FRAME", ""];
+  all.filter((c) => !c.parent_id && c.source !== "resolve").forEach((c, i) => {
+    // tempo real -> frames; o timecode nominal conta `base` frames por segundo
+    const f0 = startF + Math.round(c.t * fps);
+    const dur = c.t_end != null ? Math.max(1, Math.round((c.t_end - c.t) * fps)) : 1;
+    const reps = all.filter((r) => r.parent_id === c.id).map((r) => `${authorName(r.author)}: ${r.text}`);
+    const note = clean([`${authorName(c.author)}: ${c.text}`].concat(reps).join(" / "));
+    const n = String(i + 1).padStart(3, "0");
+    lines.push(`${n}  001      V     C        ${tc(f0)} ${tc(f0 + 1)} ${tc(f0)} ${tc(f0 + 1)}  `);
+    lines.push(` |C:ResolveColor${c.resolved ? "Green" : "Red"} |M:${note.slice(0, 900)} |D:${dur}`);
+    lines.push("");
+  });
+  const fname = path.basename(a.name, path.extname(a.name)).replace(/[^\w.-]+/g, "_") + "_fframe_markers.edl";
+  res.set("Content-Type", "text/plain; charset=utf-8");
+  res.set("Content-Disposition", `attachment; filename="${fname}"`);
+  res.send(lines.join("\r\n"));
 });
 
 // JSON cru (compatibilidade) — tambem protegido
@@ -606,6 +740,36 @@ app.delete("/_api/devices/:id", requireAdminSession, (req, res) => {
   res.status(ok ? 200 : 404).json({ ok, error: ok ? undefined : "dispositivo inexistente ou ja revogado" });
 });
 
+// ---- Biblioteca: vincular pastas que ja existem no NAS — so admin ----------
+app.get("/_api/library/status", requireAdminSession, (req, res) =>
+  res.json({ enabled: library.enabled(), root: library.LIBRARY_DIR }));
+app.get("/_api/library/browse", requireAdminSession, (req, res) => {
+  if (!library.enabled()) return res.status(404).json({ error: "biblioteca nao montada" });
+  const r = library.browse(req.query.path || "");
+  if (!r) return res.status(400).json({ error: "pasta invalida" });
+  res.json(r);
+});
+app.get("/_api/library/links", requireAdminSession, (req, res) =>
+  res.json(library.listLinks().map((l) => ({ ...l, hidden: undefined, hidden_count: (l.hidden || []).length, scanning: library.isScanning(l.id) }))));
+app.post("/_api/library/links", requireAdminSession, async (req, res) => {
+  if (!library.enabled()) return res.status(404).json({ error: "biblioteca nao montada" });
+  const b = req.body || {};
+  const r = await library.addLink({ relPath: b.path, projectId: b.project_id, recursive: b.recursive });
+  if (r.error) return res.status(400).json({ error: r.error });
+  log(`    BIBLIOTECA vinculada: "/${r.link.path}" -> projeto ${r.link.project_id} (${r.link.count} videos)`);
+  res.status(201).json(r.link);
+});
+app.post("/_api/library/links/:id/rescan", requireAdminSession, async (req, res) => {
+  if (!library.getLink(req.params.id)) return res.status(404).json({ error: "vinculo inexistente" });
+  const l = await library.scan(req.params.id);
+  res.json(l);
+});
+app.delete("/_api/library/links/:id", requireAdminSession, (req, res) => {
+  const ok = library.removeLink(req.params.id);
+  if (ok) log(`    BIBLIOTECA desvinculada: ${req.params.id}`);
+  res.status(ok ? 200 : 404).json({ ok });
+});
+
 // Catch-all: qualquer rota que o app chame e a gente ainda nao implementou
 // aparece aqui LOGADA, pra sabermos exatamente o que falta.
 app.use((req, res) => {
@@ -618,4 +782,8 @@ app.listen(PORT, "0.0.0.0", () => {
   log(`  PUBLIC_BASE = ${PUBLIC_BASE}`);
   log(`  Projetos: ${store.listProjects().map((p) => p.name).join(", ")}`);
   log(`  Painel:  ${PUBLIC_BASE}/`);
+  if (library.enabled()) {
+    log(`  Biblioteca: ${library.LIBRARY_DIR} (reindexando pastas vinculadas...)`);
+    library.scanAll().then(() => log("  Biblioteca: reindexacao concluida"));
+  }
 });

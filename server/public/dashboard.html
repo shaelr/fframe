@@ -38,6 +38,7 @@
     <div id="projects"></div>
     <button id="new-proj" class="newbtn" type="button" data-i18n="side.newProject">＋ Novo Projeto</button>
     <div class="side-h" data-i18n="side.settings">Configurações</div>
+    <div id="nav-library" class="proj hidden"><span class="nm" data-i18n="side.library">📁 Biblioteca</span></div>
     <div id="nav-devices" class="proj"><span class="nm" data-i18n="side.devices">📱 Dispositivos</span></div>
     <div class="lang-row">
       <span class="lang-ic" aria-hidden="true">🌐</span>
@@ -53,6 +54,8 @@
       <button id="menu" class="menu" type="button" data-i18n-aria="menu.aria" aria-label="menu">☰</button>
       <h1 id="title">Todos os vídeos</h1>
       <span class="sub" id="count"></span>
+      <button id="tr-import" class="btn-ghost top-btn hidden" type="button" data-i18n="tr.import">📝 Importar transcrições</button>
+      <input id="tr-import-file" type="file" multiple accept=".srt,.vtt,.txt,.json,text/plain,application/json" hidden />
     </div>
     <div id="content"></div>
   </main>

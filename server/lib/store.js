@@ -159,6 +159,33 @@ function addComment(assetId, { t, tEnd, parentId, text, author }) {
   persistComments();
   return c;
 }
+// Marcadores do Resolve -> comentarios (autor "Resolve", com a cor do marcador).
+// Chave = frame do marcador: reexportar ATUALIZA (mantem respostas e o
+// "resolvido"); marcador apagado no Resolve some daqui tambem.
+function syncMarkerComments(assetId, markers) {
+  const list = comments[assetId] || (comments[assetId] = []);
+  const byKey = new Map(list.filter((c) => c.source === "resolve").map((c) => [c.marker_key, c]));
+  const keep = new Set();
+  for (const m of markers) {
+    const generic = /^marker \d+$/i.test(m.name.trim());
+    const text = (m.note && generic ? m.note : [m.name, m.note].filter(Boolean).join(" — ")).trim() || m.name || "Marker";
+    const fields = {
+      t: Math.max(0, m.t), t_end: m.end != null && m.end > m.t + 0.05 ? m.end : null,
+      text: text.slice(0, 2000), color: m.color || null,
+    };
+    const cur = byKey.get(m.key);
+    if (cur) Object.assign(cur, fields);
+    else list.push({ id: uuid(), parent_id: null, author: "Resolve", created_at: new Date().toISOString(),
+      resolved: false, source: "resolve", marker_key: m.key, ...fields });
+    keep.add(m.key);
+  }
+  const gone = new Set(list.filter((c) => c.source === "resolve" && !keep.has(c.marker_key)).map((c) => c.id));
+  for (let i = list.length - 1; i >= 0; i--) if (gone.has(list[i].id) || gone.has(list[i].parent_id)) list.splice(i, 1);
+  if (!list.length) delete comments[assetId];
+  persistComments();
+  return keep.size;
+}
+
 function deleteComment(assetId, commentId) {
   const list = comments[assetId];
   if (!list) return false;
@@ -312,14 +339,40 @@ function ingestAsset({ name, filetype, projectId, deviceName, kind }, writeFn, d
   return asset;
 }
 
+// ---- Biblioteca (arquivos ja existentes no NAS, ver lib/library.js) ---------
+// O asset aponta para o arquivo original; quem chama persiste com saveAssets().
+function addLibraryAsset(fields) {
+  const id = uuid();
+  assets[id] = {
+    id, type: "file", kind: "library", source: "library",
+    expected_parts: 1, received_parts: [0], status: "uploaded",
+    created_at: new Date().toISOString(), ...fields,
+  };
+  return assets[id];
+}
+// Transcricao do video (lib/transcript.js) sai junto com ele.
+const dropTranscript = (id) => { try { fs.unlinkSync(path.join(DATA_DIR, "transcripts", id + ".json")); } catch {} };
+
+// Tira do indice SEM tocar no arquivo (usado pela biblioteca).
+function forgetAsset(id) {
+  if (!assets[id]) return false;
+  delete assets[id];
+  dropTranscript(id);
+  if (comments[id]) { delete comments[id]; persistComments(); }
+  return true;
+}
+
 // ---- Excluir video ----------------------------------------------------------
 function deleteAsset(id) {
   const a = assets[id];
   if (!a) return false;
+  // Arquivos da biblioteca pertencem ao NAS: nunca sao apagados pelo Fframe.
+  if (a.source === "library") { forgetAsset(id); persistAssets(); return true; }
   if (a.stored_path) { try { fs.unlinkSync(a.stored_path); } catch {} }
   try { fs.rmSync(path.join(PARTS_DIR, id), { recursive: true, force: true }); } catch {}
   delete assets[id];
   persistAssets();
+  dropTranscript(id);
   if (comments[id]) { delete comments[id]; persistComments(); } // sem video, sem comentarios
   return true;
 }
@@ -334,5 +387,6 @@ module.exports = {
   issueAuthCode, redeemAuthCode, issueToken,
   createAsset, getAsset, markPartReceived, partPath, finalPathFor, markUploaded,
   listComments, countComments, addComment, deleteComment, setCommentResolved,
+  addLibraryAsset, forgetAsset, saveAssets: persistAssets, syncMarkerComments,
   assets: () => assets,
 };

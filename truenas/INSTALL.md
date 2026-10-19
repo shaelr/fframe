@@ -1,0 +1,103 @@
+# Installing Fframe on TrueNAS SCALE
+
+This guide is for TrueNAS SCALE 24.10 (Electric Eel) or newer, which runs apps on Docker.
+
+This build of Fframe ([github.com/shaelr/fframe](https://github.com/shaelr/fframe)) adds a **Library**. An admin can pick folders that are already on the NAS (for example `SMB_Share`) and add them to a project. The videos are not copied. Fframe indexes them and plays them from where they are. The share is mounted **read-only**, so Fframe can't change or delete anything in it.
+
+Fframe's own data (phone uploads, projects, comments, transcripts and the admin login) works like Nextcloud's default storage: TrueNAS creates and manages it inside its apps dataset, so there's no dataset to create. If you'd rather keep it in a dataset you choose, see the note at the bottom of the YAML.
+
+> **Check your real path first.** Go to **Datasets**, click **SMB_Share**, and look at its **Path**. The YAML assumes `/mnt/Pool 1/SMB_Share`. If yours is different, use your path everywhere below.
+
+## 1. Let Fframe read SMB_Share
+
+The app runs as the TrueNAS user **`apps`** (UID 568), the same user TrueNAS's own apps use. That user needs read access to the share:
+
+1. Go to **Datasets → SMB_Share → Permissions → Edit**.
+2. Add an ACL entry: **User → `apps`**, permissions **Read**, and enable **Apply permissions recursively**.
+3. Save. This only adds read access. Your SMB users keep the access they have now.
+
+## 2. Edit the YAML
+
+Open [fframe.yaml](fframe.yaml) and check the two values marked **EDIT ME**:
+
+| # | What | Default |
+|---|---|---|
+| 1 | Library share (read-only) | `/mnt/Pool 1/SMB_Share` |
+| 2 | `PUBLIC_BASE`, the address your phone uses to reach the server | `http://192.168.1.100:3260` (use your NAS IP) |
+
+If port 3260 is already in use, change the left number in `"3260:3000"`.
+
+## 3. Install
+
+1. Go to **Apps → Discover Apps**, open the **⋮** menu, and choose **Install via YAML**.
+2. Name the app `fframe` and paste in the YAML.
+3. Click **Save**.
+
+TrueNAS downloads the ready-made Fframe image (`ghcr.io/shaelr/fframe`) and starts it, the same way it starts Nextcloud. No files need to be copied to the NAS.
+
+## 4. Use it
+
+1. Go to `http://<NAS-IP>:3260` and create your admin login.
+2. In the sidebar, open **📁 Library**. Browse into a folder, then click **add**, or click **＋ Add this folder** for the folder you're in.
+3. Choose a project, or **New project "<folder name>"**, and decide whether to include subfolders.
+4. The videos appear in that project, where you can play, comment and download them.
+
+Notes:
+- **New files aren't picked up automatically.** Click **rescan** on the linked folder. All linked folders are also rescanned each time the app starts. Comments are kept across rescans.
+- **"remove"** on a library video only hides it in Fframe. **"unlink"** removes the folder's videos and their comments from Fframe. Neither one touches the files on the NAS.
+- **Browser playback:** browsers can play MP4/MOV (H.264, and HEVC in Safari) and WebM. Other formats such as MXF, MKV, AVI and MTS still show up and can be downloaded, but may not play in the browser.
+- Only an admin logged into the panel can use the Library. A paired phone's device key can't browse it.
+
+## Updating
+
+Every change pushed to [github.com/shaelr/fframe](https://github.com/shaelr/fframe) is built into a new image automatically, in about 5 minutes. To install the newest build, go to **Apps → fframe → Edit** and click **Save** without changing anything. Your data isn't touched.
+
+To pin a version instead, change `:latest` in the YAML to a build tag such as `:sha-1a2b3c4`. The tags are listed on the repo's **Packages** page. Pinning is also how you roll back.
+
+## DaVinci Resolve scripts
+
+Two Resolve scripts work as a pair:
+
+- **Export to Fframe** sends transcripts and markers from Resolve to Fframe.
+- **Import Fframe Comments** brings client comments from Fframe back into Resolve as markers.
+
+**One-time setup (shared by both scripts)**
+1. Copy both files from [`tools/resolve/`](../tools/resolve) to `~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/`.
+2. In Fframe, go to **Devices → Add device**, name it `Resolve`, and click **key** to copy its key.
+3. The first time you run either script, it asks for the Fframe address (for example `http://192.168.1.50:3260`) and that key, and saves them to `~/.fframe-resolve.json`. To change them later, edit or delete that file. If you revoke the "Resolve" device in Fframe, both scripts stop connecting.
+
+## Transcripts and markers: Resolve → Fframe
+
+The player has a **Transcript** tab that works like Resolve's: click a word to jump to it, watch the words light up as they're spoken, search the text, or select a passage and click **Comment on selection**.
+
+1. In Resolve, transcribe your clips (right-click → **Audio Transcription → Transcribe**), add markers, or both.
+2. Select the clips in the Media Pool, then run **Workspace → Scripts → Utility → Export to Fframe**.
+3. The script uploads straight to Fframe. Each clip is matched to the Fframe video with the same file name, in any project. Open **Workspace → Console** to see what was sent where.
+
+If a clip has no matching video in Fframe yet, or Fframe can't be reached, the script saves an `A001.fframe.json` file next to the media instead. If that folder is linked in the Library, it attaches on the next **rescan**. Otherwise, upload it later with **📝 Import transcripts**. To change this, set `SAVE_FILES` at the top of the script: `"always"` keeps a file for every clip, and `"never"` only uploads.
+
+**Markers come along too.** These are the markers on the clip itself, added in the Source viewer or on the Media page. In Fframe each marker becomes a comment by "Resolve" at that time, in the marker's color on the playback bar. A marker with a duration becomes a range comment, and the comment text is the marker's name plus its note. Clips with markers but no transcription are sent too. Running the script again **updates** those comments instead of adding duplicates: notes you changed in Resolve are updated, markers you deleted are removed, and Fframe replies and "resolved" status are kept. Markers on timeline clips or on the timeline ruler aren't exported yet.
+
+**Also works: Resolve's own exports (.srt, .vtt, .txt)**
+Upload them in the player, or use **📝 Import transcripts** on the project page. Files are matched to videos by name. These formats only have timing per phrase, so word highlighting is approximate. For `.txt` files, Fframe asks for the timeline frame rate. If the text runs early or late, set the clip's start timecode in the transcript **⋯** menu.
+
+## Client comments back into Resolve
+
+Comments from Fframe can come back into Resolve as **markers**: open comments in red, resolved ones in green. The marker name is the comment's author, and the note holds the comment and its replies. Range comments become markers with a duration.
+
+**Option A: the "Import Fframe Comments" script (clips and timelines, updates on every run)**
+1. Do the one-time setup above.
+2. In Resolve, select clips in the Media Pool, then run **Workspace → Scripts → Utility → Import Fframe Comments**.
+   - **Clips:** each selected clip gets markers from the Fframe video with the same file name.
+   - **Timeline:** if you uploaded a render of a timeline, for example `Cut v3.mp4` from timeline `Cut v3`, open that timeline. Its comments become timeline markers.
+3. Run it again whenever the client adds feedback. Existing markers are updated (they turn green when resolved), markers for deleted comments are removed, and your own markers are never touched. Markers that came from Resolve through the export script aren't imported back.
+
+**Option B: no script, timeline only**
+In the Fframe player, click **⤓ Resolve**, enter the timeline's frame rate and start timecode, and download the `.edl`. Then in Resolve, open the timeline and use **Timeline → Import → Timeline Markers from EDL**. Use this for a one-off. Importing again adds a second copy instead of updating.
+
+## Troubleshooting
+
+- **Logs:** go to Apps → fframe, then view the logs for the `fframe` container.
+- **Library is missing from the sidebar:** the share isn't mounted at `/library`. Check EDIT ME #1.
+- **"Error: EACCES" on a linked folder:** the `apps` user can't read it. Redo step 1.
+- **Install fails with a pull error:** the NAS needs internet access to reach `ghcr.io`.

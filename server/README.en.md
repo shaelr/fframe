@@ -48,6 +48,30 @@ badge with the count. Only logged-in panel users can comment. They're stored in
 Routes (all require login): `GET/POST /_api/assets/:id/comments`, `PATCH` (resolve), and
 `DELETE /_api/assets/:id/comments/:cid`.
 
+## Library (folders already on the NAS)
+
+Set `LIBRARY_DIR` (default `/library`) to a folder mounted **read-only**, such as a TrueNAS SMB share. The admin can then open **📁 Library** in the panel, browse it, and link folders to projects. Videos are indexed in place, never copied. Use **rescan** to pick up new files; all links are also rescanned at startup. Removing or unlinking only affects Fframe's index, never the files. Links live in `data/library.json`.
+
+Routes (admin session only): `GET /_api/library/status`, `GET /_api/library/browse?path=`, `GET/POST /_api/library/links`, `POST /_api/library/links/:id/rescan`, `DELETE /_api/library/links/:id`.
+
+## Transcripts (click the text to jump in the video)
+
+Like Resolve's Transcription window: the player has a **Transcript** tab. Click any word to jump there, the spoken word lights up as the video plays, you can search the text (Enter jumps to the next match), and you can select a passage and use **Comment on selection** to leave a range comment.
+
+Accepted files: the word-level `.fframe.json` from [`tools/resolve/Export to Fframe.py`](../tools/resolve/Export%20to%20Fframe.py), Resolve's raw `GetTranscription()` JSON, `.srt`, `.vtt`, and timecoded `.txt` exports. SRT/VTT/TXT only have timing per phrase, so word timing is spread across the phrase (approximate). Timecodes with frames use the frame rate you pick (23.976 vs 24 matters on long clips); source timecode such as `01:00:00:00` is removed automatically, and the start can be adjusted in the ⋯ menu.
+
+The Resolve script's JSON also carries the clip's **markers**, which are synced as comments (author "Resolve", `color` = marker color, range if the marker has a duration). Each one is keyed by its frame, so re-importing updates or removes them and keeps replies and resolved state.
+
+Ways to attach one: upload it in the player, use **Import transcripts** on a project page (files are matched to videos by name, e.g. `A001.srt` → `A001.mov`), or put it next to the video in a Library folder (`A001.fframe.json`, `A001.srt`, …), where it's attached on the next rescan. Set `TRANSCRIPT_FPS` for Library `.txt` files (default 24). Stored in `data/transcripts/<assetId>.json`.
+
+Routes: `GET /_api/assets/:id/transcript` (login), `PUT`/`PATCH`/`DELETE` same path and `POST /_api/projects/:id/transcripts` (admin session).
+
+## Comments back to Resolve
+
+- `GET /_api/resolve/comments[?project=]` (session or device key): every video with comments, top-level comments with replies, and `from_resolve` for comments that came from Resolve markers. Used by [`tools/resolve/Import Fframe Comments.py`](../tools/resolve/Import%20Fframe%20Comments.py), which syncs them as clip or timeline markers. Each marker is tagged `customData = "fframe:<commentId>"`, so re-running updates or removes them.
+- `POST /_api/resolve/import` (session or device key): `{ files: [{ filename, content }], fps?, project_id? }`. Same matching as **Import transcripts**, but across all projects. Used by `tools/resolve/Export to Fframe.py` to upload transcripts and markers directly.
+- `GET /_api/assets/:id/markers.edl?fps=&start=`: a marker EDL for **Timeline → Import → Timeline Markers from EDL**. The player's **⤓ Resolve** button downloads it.
+
 ## Panel languages
 
 The panel ships in **Portuguese** and **English**, with a dropdown on the login screen and in the

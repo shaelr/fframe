@@ -3,6 +3,9 @@ services:
     build: .
     container_name: ${CONTAINER_NAME:-fframe-server}
     restart: unless-stopped
+    # A imagem roda como 568 (usuario "apps" do TrueNAS). Aqui ./data e uma
+    # pasta do host criada como root, entao mantem root como antes.
+    user: "0:0"
     ports:
       - "${PORT:-3260}:3000"
     environment:

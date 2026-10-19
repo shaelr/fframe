@@ -1,0 +1,50 @@
+# Fframe — TrueNAS SCALE Custom App (Apps → Discover Apps → ⋮ → Install via YAML)
+#
+# Before installing, edit the two values marked "EDIT ME" (see INSTALL.md):
+#   1. Your existing share, mounted READ-ONLY as the Library (/library).
+#   2. PUBLIC_BASE — the address your phone uses to reach the server.
+#
+# The image is built from https://github.com/shaelr/fframe by GitHub Actions.
+# Like Nextcloud's default "ixVolume" storage, Fframe's own data (uploads,
+# projects, comments, transcripts, logins) lives in a volume TrueNAS creates
+# and manages inside its apps dataset — no dataset to create by hand.
+
+services:
+  fframe:
+    image: ghcr.io/shaelr/fframe:latest
+    # Every redeploy (Edit → Save, or a restart) fetches the newest build.
+    pull_policy: always
+    restart: unless-stopped
+    user: "568:568"
+    ports:
+      - "3260:3000"
+    environment:
+      PORT: "3000"
+      # EDIT ME (2/2): how the phone app reaches this server. Use your NAS IP
+      # for LAN-only use, or your public HTTPS domain if behind a reverse proxy.
+      PUBLIC_BASE: "http://192.168.1.100:3260"
+      CHUNK_SIZE: "26214400"
+      LIBRARY_DIR: /library
+      TZ: Etc/UTC
+    volumes:
+      - fframe-data:/app/data
+      # EDIT ME (1/2): your existing share. READ-ONLY: Fframe can browse and
+      # play these files but can never change or delete them.
+      - type: bind
+        source: "/mnt/Pool 1/SMB_Share"
+        target: /library
+        read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+
+volumes:
+  # Fframe's data, managed by TrueNAS (like an ixVolume). To use your own
+  # dataset instead, replace this with:
+  #   fframe-data:
+  #     driver: local
+  #     driver_opts: { type: none, o: bind, device: "/mnt/Pool 1/fframe" }
+  # (then give the "apps" user write access to that dataset).
+  fframe-data:
