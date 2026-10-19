@@ -243,7 +243,8 @@ function matchKey(name) {
   let n = path.basename(String(name || "")).toLowerCase();
   n = n.replace(/\.(json|srt|vtt|txt)$/, "").replace(/[ ._-]*(transcript|transcription|fframe)$/, "");
   n = n.replace(/\.(mp4|m4v|mov|webm|mkv|avi|mxf|mts|m2ts|wav|mp3)$/, "");
-  return n.trim();
+  // "FSWC_Review", "FSWC-Review" e "FSWC Review" sao o mesmo video
+  return n.replace(/[\s_-]+/g, " ").trim();
 }
 
 module.exports = { parse, apply, load, has, save, remove, update, forPlayer, matchKey, FPS_OK };

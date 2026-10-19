@@ -137,9 +137,11 @@ def fetch_comments(cfg):
 
 # ---- Matching and markers ---------------------------------------------------
 def key_of(name):
+    """Same rule as Fframe: case, extension and space/_/- differences don't matter."""
+    import re
     n = os.path.basename(str(name or "")).lower().strip()
     stem, ext = os.path.splitext(n)
-    return stem if ext else n
+    return re.sub(r"[\s_-]+", " ", stem if ext else n).strip()
 
 
 def desired_markers(video, fps, cfg):

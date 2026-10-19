@@ -3,8 +3,11 @@
 Sends the word-level audio transcription AND the clip markers of media pool
 clips straight to Fframe. In Fframe the transcript becomes click-to-seek text
 and each marker becomes a comment (with its color) on the playback bar.
-Markers are the ones on the clip itself (added in the Source viewer / Media
-page), not markers on timeline clips or on the timeline ruler.
+Clip markers (added in the Source viewer / Media page) go to the Fframe video
+with the clip's file name. TIMELINE markers (on the timeline ruler) go to the
+Fframe video named like the timeline, e.g. your render "FSWC Review.mp4" of
+timeline "FSWC Review": select the timeline in the Media Pool, or just have it
+open. Markers on individual clips inside a timeline are not exported.
 
 Install: copy this file to
   macOS:   ~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Scripts/Utility/
@@ -232,6 +235,42 @@ def build(clip, project_fps):
     }
 
 
+class TimelineTarget:
+    """Lets a Timeline go through the same send/save code as a clip."""
+
+    def __init__(self, tl):
+        self.tl = tl
+
+    def GetName(self):
+        return "timeline " + self.tl.GetName()
+
+    def GetClipProperty(self, key):
+        return self.tl.GetName() if key == "File Name" else ""
+
+
+def build_timeline(tl, project_fps):
+    """Timeline-ruler markers -> Fframe JSON (times from the timeline start)."""
+    try:
+        fps = float(tl.GetSetting("timelineFrameRate") or project_fps)
+    except (TypeError, ValueError):
+        fps = float(project_fps or 24)
+    marks = markers(tl, fps)
+    if not marks:
+        return None
+    return {
+        "fframe_transcript": 1, "clip": tl.GetName(), "file": tl.GetName(), "timeline": True,
+        "fps": fps, "start_tc": tl.GetStartTimecode(), "language": None, "segments": [], "markers": marks,
+    }
+
+
+def find_timeline(project, name):
+    for i in range(1, (project.GetTimelineCount() or 0) + 1):
+        tl = project.GetTimelineByIndex(i)
+        if tl and tl.GetName() == name:
+            return tl
+    return None
+
+
 def file_stem(clip):
     media = clip.GetClipProperty("File Path") or ""
     return os.path.splitext(os.path.basename(media) or clip.GetClipProperty("File Name") or clip.GetName())[0]
@@ -267,7 +306,25 @@ def main():
         clips = folder.GetClipList() if folder else []
     fps = project.GetSetting("timelineFrameRate") or 24
 
+    # Timelines: the ones selected in the Media Pool, plus the open one.
+    timelines = {}
+    for item in [c for c in clips if c.GetClipProperty("Type") == "Timeline"]:
+        clips.remove(item)
+        tl = find_timeline(project, item.GetName())
+        if tl:
+            timelines[tl.GetName()] = tl
+    current = project.GetCurrentTimeline()
+    if current:
+        timelines.setdefault(current.GetName(), current)
+
     docs, empty = [], []
+    for name, tl in timelines.items():
+        doc = build_timeline(tl, fps)
+        target = TimelineTarget(tl)
+        if doc:
+            docs.append((target, doc, name + ".fframe.json"))
+        elif tl is not current:
+            empty.append(target.GetName())
     for clip in clips:
         doc = build(clip, fps)
         if doc:
@@ -275,7 +332,7 @@ def main():
         else:
             empty.append(clip.GetName())
     if not docs:
-        print("Fframe: nothing to send - the selected clips have no transcription or markers.")
+        print("Fframe: nothing to send - no transcription or markers on the selected clips or the open timeline.")
         return
 
     results, problem = {}, None
@@ -304,7 +361,8 @@ def main():
         if SAVE_FILES == "always" or (SAVE_FILES == "fallback" and not res.get("ok")):
             path = write(doc, clip)
             if path and not res.get("ok"):
-                reason = "no video named like it in Fframe yet" if res.get("error") == "nenhum video com esse nome" else (res.get("error") or problem or "not sent")
+                reason = ("no video named like it in Fframe yet - upload the render as \"%s.mp4\"" % doc["clip"]
+                          if doc.get("timeline") else "no video named like it in Fframe yet") if res.get("error") == "nenhum video com esse nome" else (res.get("error") or problem or "not sent")
                 saved.append("%s (%s) -> %s" % (clip.GetName(), reason, path))
             elif not path and not res.get("ok"):
                 failed.append(clip.GetName())
@@ -313,11 +371,11 @@ def main():
 
     if problem:
         print("Fframe: upload failed: %s." % problem)
-    print("Fframe: sent %d clip(s) to Fframe." % len(sent))
+    print("Fframe: sent %d item(s) to Fframe." % len(sent))
     for line in sent:
         print("  ->", line)
     if saved:
-        print("Fframe: saved %d clip(s) as files instead:" % len(saved))
+        print("Fframe: saved %d item(s) as files instead:" % len(saved))
         for line in saved:
             print("  ->", line)
     if failed:
