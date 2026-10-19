@@ -70,7 +70,7 @@ Two Resolve scripts work as a pair:
 
 The player has a **Transcript** tab that works like Resolve's: click a word to jump to it, watch the words light up as they're spoken, search the text, or select a passage and click **Comment on selection**.
 
-1. In Resolve, transcribe your clips (right-click → **Audio Transcription → Transcribe**), add markers, or both.
+1. In Resolve, transcribe your clips or your whole timeline (right-click → **Audio Transcription → Transcribe**), add markers, or both. A timeline's transcript and its markers go to the Fframe video named like the timeline.
 2. Select the clips in the Media Pool, then run **Workspace → Scripts → Utility → Export to Fframe**.
 3. The script uploads straight to Fframe. Each clip is matched to the Fframe video with the same file name, in any project. Open **Workspace → Console** to see what was sent where.
 

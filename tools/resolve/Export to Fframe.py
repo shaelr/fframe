@@ -4,8 +4,8 @@ Sends the word-level audio transcription AND the clip markers of media pool
 clips straight to Fframe. In Fframe the transcript becomes click-to-seek text
 and each marker becomes a comment (with its color) on the playback bar.
 Clip markers (added in the Source viewer / Media page) go to the Fframe video
-with the clip's file name. TIMELINE markers (on the timeline ruler) go to the
-Fframe video named like the timeline, e.g. your render "FSWC Review.mp4" of
+with the clip's file name. TIMELINE markers (on the timeline ruler) and a transcription made on the
+timeline itself go to the Fframe video named like the timeline, e.g. your render "FSWC Review.mp4" of
 timeline "FSWC Review": select the timeline in the Media Pool, or just have it
 open. Markers on individual clips inside a timeline are not exported.
 
@@ -162,12 +162,18 @@ def upload(cfg, files):
 
 
 def tc_frames(tc, base):
-    """'01:02:03:04' (or ';' drop-frame separator) -> frame count at nominal rate."""
-    parts = str(tc or "").replace(";", ":").split(":")
+    """'01:02:03:04' (';' = drop-frame) -> frame count at nominal rate.
+    Timeline transcriptions can start before 0 ("-00:00:04:08"): negative."""
+    tc = str(tc or "").strip()
+    sign = -1 if tc.startswith("-") else 1
+    parts = tc.lstrip("-+").replace(";", ":").split(":")
     if len(parts) != 4:
         return None
-    h, m, s, f = (int(p) for p in parts)
-    return ((h * 60 + m) * 60 + s) * base + f
+    try:
+        h, m, s, f = (int(p) for p in parts)
+    except ValueError:
+        return None
+    return sign * (((h * 60 + m) * 60 + s) * base + f)
 
 
 def markers(clip, fps):
@@ -187,21 +193,12 @@ def markers(clip, fps):
     return out
 
 
-def build(clip, project_fps):
-    """Returns the Fframe JSON dict for a MediaPoolItem, or None."""
-    try:
-        fps = float(clip.GetClipProperty("FPS") or project_fps)
-    except (TypeError, ValueError):
-        fps = float(project_fps or 24)
-    marks = markers(clip, fps)
-    tr = clip.GetTranscription() or {}
-    segs = tr.get("segments") or []
-    if not segs and not marks:
-        return None
+def segments(segs, fps, start_tc):
+    """Resolve transcription segments -> Fframe segments (seconds from the start).
+    Timecodes are source/timeline TC on some clips: made relative to `start_tc`."""
     base = round(fps)
-    start = tc_frames(clip.GetClipProperty("Start TC"), base) or 0
+    start = tc_frames(start_tc, base) or 0
     first = min((tc_frames(s.get("start"), base) or 0) for s in segs) if segs else 0
-    # Timecodes are source TC on some clips: make them relative to the clip start.
     off = start if start and first >= start else 0
 
     def sec(tc):
@@ -221,6 +218,21 @@ def build(clip, project_fps):
             continue
         out.append({"t": sec(s.get("start")), "end": sec(s.get("end")),
                     "speaker": s.get("speaker"), "text": text, "words": words})
+    return out
+
+
+def build(clip, project_fps):
+    """Returns the Fframe JSON dict for a MediaPoolItem, or None."""
+    try:
+        fps = float(clip.GetClipProperty("FPS") or project_fps)
+    except (TypeError, ValueError):
+        fps = float(project_fps or 24)
+    marks = markers(clip, fps)
+    tr = clip.GetTranscription() or {}
+    segs = tr.get("segments") or []
+    if not segs and not marks:
+        return None
+    out = segments(segs, fps, clip.GetClipProperty("Start TC"))
     if not out and not marks:
         return None
     return {
@@ -248,19 +260,41 @@ class TimelineTarget:
         return self.tl.GetName() if key == "File Name" else ""
 
 
-def build_timeline(tl, project_fps):
-    """Timeline-ruler markers -> Fframe JSON (times from the timeline start)."""
+def build_timeline(tl, item, project_fps):
+    """Timeline -> Fframe JSON: its ruler markers, plus the transcription made
+    on the timeline itself (stored on its Media Pool item `item`)."""
     try:
         fps = float(tl.GetSetting("timelineFrameRate") or project_fps)
     except (TypeError, ValueError):
         fps = float(project_fps or 24)
     marks = markers(tl, fps)
-    if not marks:
+    tr = {}
+    if item:
+        try:
+            tr = item.GetTranscription() or {}
+        except Exception:
+            tr = {}
+    segs = segments(tr.get("segments") or [], fps, tl.GetStartTimecode())
+    if not marks and not segs:
         return None
     return {
         "fframe_transcript": 1, "clip": tl.GetName(), "file": tl.GetName(), "timeline": True,
-        "fps": fps, "start_tc": tl.GetStartTimecode(), "language": None, "segments": [], "markers": marks,
+        "fps": fps, "start_tc": tl.GetStartTimecode(), "language": tr.get("language"), "segments": segs, "markers": marks,
     }
+
+
+def timeline_item(pool, name):
+    """The Media Pool item of a timeline (where a timeline's transcription lives)."""
+    def walk(folder):
+        for c in folder.GetClipList() or []:
+            if c.GetClipProperty("Type") == "Timeline" and c.GetName() == name:
+                return c
+        for sub in folder.GetSubFolderList() or []:
+            hit = walk(sub)
+            if hit:
+                return hit
+        return None
+    return walk(pool.GetRootFolder())
 
 
 def find_timeline(project, name):
@@ -307,19 +341,19 @@ def main():
     fps = project.GetSetting("timelineFrameRate") or 24
 
     # Timelines: the ones selected in the Media Pool, plus the open one.
-    timelines = {}
+    timelines = {}                                   # name -> (Timeline, its Media Pool item)
     for item in [c for c in clips if c.GetClipProperty("Type") == "Timeline"]:
         clips.remove(item)
         tl = find_timeline(project, item.GetName())
         if tl:
-            timelines[tl.GetName()] = tl
+            timelines[tl.GetName()] = (tl, item)
     current = project.GetCurrentTimeline()
-    if current:
-        timelines.setdefault(current.GetName(), current)
+    if current and current.GetName() not in timelines:
+        timelines[current.GetName()] = (current, timeline_item(pool, current.GetName()))
 
     docs, empty = [], []
-    for name, tl in timelines.items():
-        doc = build_timeline(tl, fps)
+    for name, (tl, item) in timelines.items():
+        doc = build_timeline(tl, item, fps)
         target = TimelineTarget(tl)
         if doc:
             docs.append((target, doc, name + ".fframe.json"))
