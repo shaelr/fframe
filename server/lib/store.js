@@ -78,6 +78,36 @@ function deleteProject(id) {
   return false;
 }
 
+// ---- Compartilhamento por link (sem login) -----------------------------------
+// project.share = { token, enabled, allow_download, allow_comments, show_transcript }
+const SHARE_DEFAULTS = { enabled: false, allow_download: false, allow_comments: true, show_transcript: true };
+function getShare(projectId) {
+  const p = getProject(projectId);
+  if (!p) return null;
+  if (!p.share || !p.share.token) {
+    p.share = { ...SHARE_DEFAULTS, ...(p.share || {}), token: crypto.randomBytes(24).toString("base64url"), created_at: new Date().toISOString() };
+    persistProjects();
+  }
+  return p.share;
+}
+function updateShare(projectId, patch) {
+  const sh = getShare(projectId);
+  if (!sh) return null;
+  for (const k of ["enabled", "allow_download", "allow_comments", "show_transcript"]) if (k in patch) sh[k] = !!patch[k];
+  if (patch.regenerate) { sh.token = crypto.randomBytes(24).toString("base64url"); sh.created_at = new Date().toISOString(); }
+  persistProjects();
+  return sh;
+}
+function getProjectByShareToken(token) {
+  if (!token || typeof token !== "string" || token.length < 20) return null;
+  const a = Buffer.from(token);
+  return projects.find((p) => {
+    if (!p.share || !p.share.enabled || !p.share.token) return false;
+    const b = Buffer.from(p.share.token);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }) || null;
+}
+
 // Projeto "conectado" no momento (ultimo /v2/devices/connect vence).
 let connectedProjectId = config.project.id;
 const setConnectedProject = (id) => { if (getProject(id)) connectedProjectId = id; };
@@ -136,7 +166,7 @@ function persistComments() { fs.writeFileSync(COMMENTS_FILE, JSON.stringify(comm
 
 const listComments = (assetId) => (comments[assetId] || []).slice().sort((a, b) => a.t - b.t);
 const countComments = (assetId) => (comments[assetId] || []).length;
-function addComment(assetId, { t, tEnd, parentId, text, author }) {
+function addComment(assetId, { t, tEnd, parentId, text, author, guestHash }) {
   const clean = String(text || "").trim().slice(0, 2000);
   if (!clean) return null;
   const list = comments[assetId] || (comments[assetId] = []);
@@ -155,36 +185,66 @@ function addComment(assetId, { t, tEnd, parentId, text, author }) {
     created_at: new Date().toISOString(),
     resolved: false,
   };
+  // Comentario de cliente via link de compartilhamento (sem login).
+  if (guestHash) { c.guest = true; c.guest_hash = guestHash; }
   list.push(c);
   persistComments();
   return c;
 }
-// Marcadores do Resolve -> comentarios (autor "Resolve", com a cor do marcador).
-// Chave = frame do marcador: reexportar ATUALIZA (mantem respostas e o
-// "resolvido"); marcador apagado no Resolve some daqui tambem.
-function syncMarkerComments(assetId, markers) {
-  const list = comments[assetId] || (comments[assetId] = []);
-  const byKey = new Map(list.filter((c) => c.source === "resolve").map((c) => [c.marker_key, c]));
-  const keep = new Set();
-  for (const m of markers) {
-    const generic = /^marker \d+$/i.test(m.name.trim());
-    const text = (m.note && generic ? m.note : [m.name, m.note].filter(Boolean).join(" — ")).trim() || m.name || "Marker";
-    const fields = {
-      t: Math.max(0, m.t), t_end: m.end != null && m.end > m.t + 0.05 ? m.end : null,
-      text: text.slice(0, 2000), color: m.color || null,
-    };
-    const cur = byKey.get(m.key);
-    if (cur) Object.assign(cur, fields);
-    else list.push({ id: uuid(), parent_id: null, author: "Resolve", created_at: new Date().toISOString(),
-      resolved: false, source: "resolve", marker_key: m.key, ...fields });
-    keep.add(m.key);
-  }
-  const gone = new Set(list.filter((c) => c.source === "resolve" && !keep.has(c.marker_key)).map((c) => c.id));
-  for (let i = list.length - 1; i >= 0; i--) if (gone.has(list[i].id) || gone.has(list[i].parent_id)) list.splice(i, 1);
-  if (!list.length) delete comments[assetId];
-  persistComments();
-  return keep.size;
+// ---- Capitulos (marcadores do DaVinci Resolve) -----------------------------
+// data/chapters.json: { <assetId>: [ { id, key, t, end, title, note, color } ] }
+// Os capitulos pertencem ao Resolve: cada exportacao SUBSTITUI a lista (o que
+// foi apagado no Resolve some aqui). `key` = frame do marcador, p/ manter o id.
+const CHAPTERS_FILE = path.join(DATA_DIR, "chapters.json");
+let chapters = {};
+if (fs.existsSync(CHAPTERS_FILE)) {
+  try { chapters = JSON.parse(fs.readFileSync(CHAPTERS_FILE, "utf8")); } catch { chapters = {}; }
 }
+function persistChapters() { fs.writeFileSync(CHAPTERS_FILE, JSON.stringify(chapters, null, 2)); }
+const listChapters = (assetId) => (chapters[assetId] || []).slice().sort((a, b) => a.t - b.t);
+const countChapters = (assetId) => (chapters[assetId] || []).length;
+function chapterTitle(name, note) {
+  name = String(name || "").trim(); note = String(note || "").trim();
+  // "Marker 3" (nome padrao do Resolve) + nota -> a nota vira o titulo
+  if ((!name || /^marker \d+$/i.test(name)) && note) return { title: note, note: "" };
+  return { title: name || "Chapter", note };
+}
+function syncChapters(assetId, markers) {
+  const old = new Map((chapters[assetId] || []).map((c) => [c.key, c]));
+  const list = markers.map((m) => {
+    const { title, note } = chapterTitle(m.name, m.note);
+    return {
+      id: (old.get(m.key) || {}).id || uuid(), key: m.key,
+      t: Math.max(0, Number(m.t) || 0), end: m.end != null && m.end > m.t + 0.05 ? Number(m.end) : null,
+      title: title.slice(0, 200), note: note.slice(0, 2000), color: m.color || null,
+    };
+  }).sort((a, b) => a.t - b.t);
+  if (list.length) chapters[assetId] = list; else delete chapters[assetId];
+  persistChapters();
+  return list.length;
+}
+const dropChapters = (id) => { if (chapters[id]) { delete chapters[id]; persistChapters(); } };
+
+// MIGRACAO: versoes anteriores guardavam os marcadores do Resolve como
+// comentarios (source "resolve"). Viram capitulos; o comentario sai.
+(function migrateMarkerComments() {
+  let moved = 0;
+  for (const [assetId, list] of Object.entries(comments)) {
+    const marks = list.filter((c) => c.source === "resolve");
+    if (!marks.length) continue;
+    if (!chapters[assetId]) {
+      chapters[assetId] = marks.map((c) => ({
+        id: uuid(), key: String(c.marker_key != null ? c.marker_key : c.t), t: c.t, end: c.t_end || null,
+        title: String(c.text || "Chapter").slice(0, 200), note: "", color: c.color || null,
+      })).sort((a, b) => a.t - b.t);
+    }
+    const ids = new Set(marks.map((c) => c.id));
+    const rest = list.filter((c) => !ids.has(c.id) && !ids.has(c.parent_id));
+    if (rest.length) comments[assetId] = rest; else delete comments[assetId];
+    moved += marks.length;
+  }
+  if (moved) { persistChapters(); persistComments(); console.log(`[migracao] ${moved} marcador(es) do Resolve viraram capitulos`); }
+})();
 
 function deleteComment(assetId, commentId) {
   const list = comments[assetId];
@@ -358,6 +418,7 @@ function forgetAsset(id) {
   if (!assets[id]) return false;
   delete assets[id];
   dropTranscript(id);
+  dropChapters(id);
   if (comments[id]) { delete comments[id]; persistComments(); }
   return true;
 }
@@ -373,6 +434,7 @@ function deleteAsset(id) {
   delete assets[id];
   persistAssets();
   dropTranscript(id);
+  dropChapters(id);
   if (comments[id]) { delete comments[id]; persistComments(); } // sem video, sem comentarios
   return true;
 }
@@ -383,10 +445,12 @@ module.exports = {
   getDeviceKey, ingestAsset,
   listDevices, createDevice, revokeDevice, findDeviceByKey,
   listProjects, getProject, getProjectByRoot, createProject, deleteProject,
+  getShare, updateShare, getProjectByShareToken,
   setConnectedProject, getConnectedProject,
   issueAuthCode, redeemAuthCode, issueToken,
   createAsset, getAsset, markPartReceived, partPath, finalPathFor, markUploaded,
   listComments, countComments, addComment, deleteComment, setCommentResolved,
-  addLibraryAsset, forgetAsset, saveAssets: persistAssets, syncMarkerComments,
+  addLibraryAsset, forgetAsset, saveAssets: persistAssets,
+  listChapters, countChapters, syncChapters,
   assets: () => assets,
 };

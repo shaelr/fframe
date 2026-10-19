@@ -55,14 +55,17 @@
       <h1 id="title">Todos os vídeos</h1>
       <span class="sub" id="count"></span>
       <button id="tr-import" class="btn-ghost top-btn hidden" type="button" data-i18n="tr.import">📝 Importar transcrições</button>
+      <button id="share-btn" class="btn-primary top-share hidden" type="button" data-i18n="share.btn">🔗 Compartilhar</button>
       <input id="tr-import-file" type="file" multiple accept=".srt,.vtt,.txt,.json,text/plain,application/json" hidden />
     </div>
     <div id="content"></div>
   </main>
 </div>
 
-<!-- Player em tela cheia -->
-<div id="player" class="player"></div>
+<!-- Pagina de revisao (admin /v/<id> e cliente /s/<token>/v/<id>) -->
+<div id="review" class="review hidden"></div>
+<!-- Link de compartilhamento do cliente (/s/<token>) -->
+<div id="share" class="share hidden"></div>
 
 <!-- Avisos (toasts) e modal — tudo dentro do site, sem popups do navegador -->
 <div id="toasts" class="toasts"></div>
@@ -70,6 +73,7 @@
 
 <script src="/qrcode.min.js" defer></script>
 <script src="/i18n.js" defer></script>
+<script src="/review.js" defer></script>
 <script src="/app.js" defer></script>
 </body>
 </html>

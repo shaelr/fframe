@@ -7,7 +7,7 @@
 //   - SRT, WebVTT
 //   - TXT exportado do Resolve (linhas com timecode, opcionalmente speaker)
 // O JSON do script tambem traz os MARCADORES do clipe, que viram comentarios
-// (ver apply() e store.syncMarkerComments).
+// (ver apply() e store.syncChapters): viram CAPITULOS no player.
 // SRT/VTT/TXT so tem tempo por frase: as palavras recebem tempos aproximados
 // (distribuidos pelo tamanho de cada palavra) e ficam marcadas `approx`.
 //
@@ -80,6 +80,7 @@ function parseJSON(obj, base) {
   if (obj && obj.fframe_transcript) {
     return {
       kind: "resolve-json", fps: Number(obj.fps) || null, realtime: true, language: obj.language || null,
+      hasMarkers: Array.isArray(obj.markers),
       markers: (Array.isArray(obj.markers) ? obj.markers : []).filter((m) => Number.isFinite(Number(m.t))).map((m) => ({
         key: String(m.frame != null ? m.frame : m.t), t: Number(m.t), end: m.end != null ? Number(m.end) : null,
         color: m.color ? String(m.color).slice(0, 20) : null,
@@ -173,8 +174,10 @@ function parse(content, { filename, fps }) {
   else r = parseTxt(text, base);
   if (!r) return { error: "formato nao reconhecido" };
   const segments = cleanSegments(r.segments);
-  const markers = r.markers || [];
-  if (!segments.length && !markers.length) return { error: "nenhum trecho com tempo encontrado" };
+  // null = o arquivo nao fala de marcadores (nao mexe nos capitulos);
+  // [] = exportado do Resolve sem marcadores (apaga os capitulos antigos).
+  const markers = r.hasMarkers ? r.markers : null;
+  if (!segments.length && !(markers && markers.length) && !r.hasMarkers) return { error: "nenhum trecho com tempo encontrado" };
   // Arquivos com timecode de fonte (ex.: 01:00:00:00): tira as horas cheias.
   const min = segments.length ? segments[0].t : 0;
   const offset = min >= 3600 ? Math.floor(min / 3600) * 3600 : 0;
@@ -188,13 +191,14 @@ function parse(content, { filename, fps }) {
 }
 
 // Aplica um arquivo ja parseado a um video: grava a transcricao (se houver
-// texto) e sincroniza os marcadores do Resolve como comentarios.
+// texto) e sincroniza os marcadores do Resolve como capitulos.
 // Retorna { transcript: bool, markers: n }.
 function apply(id, r, extra) {
   const { markers, ...doc } = r;
   let hasText = false;
   if (doc.segments && doc.segments.length) { save(id, { ...doc, ...extra }); hasText = true; }
-  const n = markers && markers.length ? store.syncMarkerComments(id, markers) : 0;
+  // Lista vazia tambem sincroniza: marcadores apagados no Resolve somem.
+  const n = Array.isArray(markers) ? store.syncChapters(id, markers) : 0;
   return { transcript: hasText, markers: n };
 }
 

@@ -9,11 +9,12 @@ you can jump straight to each note while editing:
     uploaded a render "Cut v3.mp4" of timeline "Cut v3"), its comments become
     timeline markers.
 
-Open comments are red, resolved ones green; the marker name is the author and
-the note holds the comment and its replies. Range comments get a duration.
-Run it again any time: markers are updated in place (moved, re-colored when
-resolved, removed when the comment is deleted). Markers that originally came
-from Resolve (via "Export to Fframe") are not imported back.
+Every comment becomes a RED marker: the marker name is who wrote it and the
+marker's Notes field holds the comment and its replies (resolved comments say
+"(resolved in Fframe)"). Range comments get a duration. Run it again any time:
+markers are updated in place and removed when the comment is deleted. Your own
+markers are never touched, and Resolve markers sent with "Export to Fframe"
+(chapters in Fframe) never come back as comments.
 
 Setup (once): in Fframe go to Devices -> Add device, name it "Resolve" and copy
 its key. The first run asks for the Fframe address and that key and saves them
@@ -31,7 +32,8 @@ import urllib.error
 import urllib.request
 
 CONFIG_FILE = os.path.join(os.path.expanduser("~"), ".fframe-resolve.json")
-DEFAULTS = {"url": "", "key": "", "open_color": "Red", "resolved_color": "Green"}
+DEFAULTS = {"url": "", "key": ""}
+MARKER_COLOR = "Red"
 TAG = "fframe:"
 
 
@@ -159,8 +161,8 @@ def desired_markers(video, fps, cfg):
             lines.append("(resolved in Fframe)")
         out[c["id"]] = {
             "frame": frame, "duration": dur,
-            "color": cfg["resolved_color"] if c.get("resolved") else cfg["open_color"],
-            "name": "Fframe · %s" % (c.get("author") or "comment"),
+            "color": MARKER_COLOR,
+            "name": c.get("author") or "Fframe",
             "note": "\n".join(lines)[:4000],
         }
     return out

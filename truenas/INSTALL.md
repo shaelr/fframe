@@ -76,24 +76,41 @@ The player has a **Transcript** tab that works like Resolve's: click a word to j
 
 If a clip has no matching video in Fframe yet, or Fframe can't be reached, the script saves an `A001.fframe.json` file next to the media instead. If that folder is linked in the Library, it attaches on the next **rescan**. Otherwise, upload it later with **📝 Import transcripts**. To change this, set `SAVE_FILES` at the top of the script: `"always"` keeps a file for every clip, and `"never"` only uploads.
 
-**Markers come along too.** Clip markers (added in the Source viewer or on the Media page) go to the Fframe video with the clip's file name. **Timeline markers** (on the timeline ruler) go to the Fframe video named like the timeline. For example, upload your render of timeline `FSWC Review` as `FSWC Review.mp4`, then select the timeline in the Media Pool (or just have it open) and run the script. Case, spaces, underscores and dashes don't matter, so `FSWC_Review.mp4` matches too. In Fframe each marker becomes a comment by "Resolve" at that time, in the marker's color on the playback bar. A marker with a duration becomes a range comment, and the comment text is the marker's name plus its note. Clips with markers but no transcription are sent too. Running the script again **updates** those comments instead of adding duplicates: notes you changed in Resolve are updated, markers you deleted are removed, and Fframe replies and "resolved" status are kept. Markers on individual clips inside a timeline aren't exported.
+**Markers become chapters.** Clip markers (added in the Source viewer or on the Media page) go to the Fframe video with the clip's file name. **Timeline markers** (on the timeline ruler) go to the Fframe video named like the timeline. For example, upload your render of timeline `FSWC Review` as `FSWC Review.mp4`, then select the timeline in the Media Pool (or just have it open) and run the script. Case, spaces, underscores and dashes don't matter, so `FSWC_Review.mp4` matches too.
+
+In Fframe's review page each marker is a **chapter**: a tick in the marker's color on the playback bar, a row in the **Chapters** tab (click to jump), and the ⏮ / ⏭ buttons or the **↑ / ↓** keys to jump between chapters. The chapter title is the marker's name; if the name is Resolve's default ("Marker 3"), its note is used instead. Running the script again replaces the chapters, so markers you renamed, moved or deleted in Resolve are updated in Fframe. Markers on individual clips inside a timeline aren't exported.
 
 **Also works: Resolve's own exports (.srt, .vtt, .txt)**
 Upload them in the player, or use **📝 Import transcripts** on the project page. Files are matched to videos by name. These formats only have timing per phrase, so word highlighting is approximate. For `.txt` files, Fframe asks for the timeline frame rate. If the text runs early or late, set the clip's start timecode in the transcript **⋯** menu.
 
 ## Client comments back into Resolve
 
-Comments from Fframe can come back into Resolve as **markers**: open comments in red, resolved ones in green. The marker name is the comment's author, and the note holds the comment and its replies. Range comments become markers with a duration.
+Comments from Fframe, yours and your clients', come back into Resolve as **red markers**. The marker name is who wrote the comment, and the marker's **Notes** field holds the comment and its replies. Resolved comments say "(resolved in Fframe)". Range comments become markers with a duration. Chapters (your own Resolve markers) never come back as comments.
 
 **Option A: the "Import Fframe Comments" script (clips and timelines, updates on every run)**
 1. Do the one-time setup above.
 2. In Resolve, select clips in the Media Pool, then run **Workspace → Scripts → Utility → Import Fframe Comments**.
    - **Clips:** each selected clip gets markers from the Fframe video with the same file name.
    - **Timeline:** if you uploaded a render of a timeline, for example `Cut v3.mp4` from timeline `Cut v3`, open that timeline. Its comments become timeline markers.
-3. Run it again whenever the client adds feedback. Existing markers are updated (they turn green when resolved), markers for deleted comments are removed, and your own markers are never touched. Markers that came from Resolve through the export script aren't imported back.
+3. Run it again whenever the client adds feedback. Existing markers are updated, markers for deleted comments are removed, and your own markers are never touched. Markers that came from Resolve through the export script aren't imported back.
 
 **Option B: no script, timeline only**
 In the Fframe player, click **⤓ Resolve**, enter the timeline's frame rate and start timecode, and download the `.edl`. Then in Resolve, open the timeline and use **Timeline → Import → Timeline Markers from EDL**. Use this for a one-off. Importing again adds a second copy instead of updating.
+
+## Sharing a project with a client
+
+Clients review on a private link with no account or login, the same way Frame.io works.
+
+1. Open the project and click **🔗 Share**.
+2. Turn on **Share link** and click **Copy**. Send that link to your client.
+3. Choose what the client can do:
+   - **Comment**: leave comments and replies (on by default).
+   - **Download videos**: show download buttons (off by default).
+   - **See transcripts**: show the Transcript tab when a video has one (on by default).
+
+When the client opens the link, they're asked for their name once. Their comments show that name, with a "guest" label for you. Clients can reply and delete their own comments. Resolving comments, deleting anyone else's, transcript settings and the Resolve EDL button are only for you.
+
+To stop access, turn **Share link** off. **New link** replaces the URL, and the old one stops working immediately. Only people with the link can open it, so share it like a password.
 
 ## Troubleshooting
 

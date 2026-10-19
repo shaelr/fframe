@@ -109,7 +109,9 @@ function log(line) {
 app.use((req, res, next) => {
   const host = req.headers.host || "?";
   const auth = req.headers.authorization ? " (Bearer)" : "";
-  log(`--> ${req.method} ${host}${req.originalUrl}${auth}`);
+  // o token do link de compartilhamento nao vai pro log
+  const url = req.originalUrl.replace(/^\/(_?s)\/[^/?]+/, "/$1/***");
+  log(`--> ${req.method} ${host}${url}${auth}`);
   next();
 });
 
@@ -395,7 +397,14 @@ function maybeAssemble(asset) {
 app.get("/api/health", (req, res) => res.json({ ok: true, service: "fframe-server" }));
 
 // ---- Tela / arquivos estaticos (SEM segredos: so HTML/CSS/JS publicos) -------
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "public", "dashboard.html")));
+const SHELL_HTML = path.join(__dirname, "public", "dashboard.html");
+app.get("/", (req, res) => res.sendFile(SHELL_HTML));
+// Pagina de revisao do admin (/v/<id>) e do cliente (/s/<token>, /s/<token>/v/<id>).
+// So o HTML publico; os dados vem das APIs, que checam login ou o token.
+app.get(["/v/:id", "/s/:token", "/s/:token/v/:id"], (req, res) => {
+  res.set("Referrer-Policy", "no-referrer");
+  res.sendFile(SHELL_HTML);
+});
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 // PWA: service worker (escopo raiz) e manifest, publicos e sem segredo.
 app.get("/sw.js", (req, res) => {
@@ -458,8 +467,9 @@ app.get("/_devicelogin", (req, res) => {
 app.get("/_api/projects", requireAuth, (req, res) => {
   const connId = store.getConnectedProject().id;
   const all = Object.values(store.assets());
-  res.json(store.listProjects().map((p) => ({
+  res.json(store.listProjects().map(({ share, ...p }) => ({
     ...p,
+    shared: !!(share && share.enabled),   // o token so sai em /_api/projects/:id/share (admin)
     connected: p.id === connId,
     video_count: all.filter((a) => a.project_id === p.id && a.status === "uploaded").length,
   })));
@@ -488,6 +498,7 @@ app.get("/_api/assets", requireAuth, (req, res) => {
       date: (a.uploaded_at || a.created_at || "").slice(0, 10),
       comment_count: store.countComments(a.id),
       has_transcript: transcript.has(a.id),
+      chapter_count: store.countChapters(a.id),
     }))
     .sort((x, y) => String(y.uploaded_at).localeCompare(String(x.uploaded_at)));
   res.json(list);
@@ -507,10 +518,22 @@ app.delete("/_api/assets/:id", requireAuth, (req, res) => {
   res.status(ok ? 200 : 404).json({ ok });
 });
 
+// Comentario como vai pro navegador: sem o hash do convidado.
+const publicComment = (c, guestHash) => {
+  const { guest_hash, ...rest } = c;
+  if (guestHash !== undefined) rest.mine = !!guest_hash && guest_hash === guestHash;
+  return rest;
+};
+
 // ---- Comentarios com timestamp (revisao no painel) — exige login ------------
 app.get("/_api/assets/:id/comments", requireAuth, (req, res) => {
   if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
-  res.json(store.listComments(req.params.id));
+  res.json(store.listComments(req.params.id).map((c) => publicComment(c)));
+});
+// Capitulos = marcadores do Resolve (somente leitura no painel).
+app.get("/_api/assets/:id/chapters", requireAuth, (req, res) => {
+  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
+  res.json(store.listChapters(req.params.id));
 });
 app.post("/_api/assets/:id/comments", requireAuth, (req, res) => {
   if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
@@ -595,10 +618,102 @@ app.post("/_api/resolve/import", requireAuth, (req, res) => {
   res.json({ results });
 });
 
+// =============================================================================
+// COMPARTILHAMENTO (estilo Frame.io): link secreto por projeto, sem login.
+// O cliente informa o nome; os comentarios ficam com esse nome. Tudo aqui so
+// enxerga o projeto do token e respeita as opcoes definidas pelo admin.
+// =============================================================================
+app.get("/_api/projects/:id/share", requireAdminSession, (req, res) => {
+  const p = store.getProject(req.params.id);
+  if (!p) return res.status(404).json({ error: "projeto inexistente" });
+  res.json(store.getShare(p.id));
+});
+app.patch("/_api/projects/:id/share", requireAdminSession, (req, res) => {
+  const p = store.getProject(req.params.id);
+  if (!p) return res.status(404).json({ error: "projeto inexistente" });
+  const sh = store.updateShare(p.id, req.body || {});
+  log(`    COMPARTILHAMENTO "${p.name}": ${sh.enabled ? "ativo" : "desativado"}${(req.body || {}).regenerate ? " (novo link)" : ""}`);
+  res.json(sh);
+});
+
+// Resolve o token -> projeto. Link desativado/inexistente = 404 generico.
+function shareCtx(req, res, next) {
+  const p = store.getProjectByShareToken(req.params.token);
+  if (!p) return res.status(404).json({ error: "link invalido ou desativado" });
+  req.shareProject = p;
+  req.share = p.share;
+  const gid = String(req.headers["x-guest-id"] || "");
+  req.guestHash = /^[a-f0-9]{16,64}$/.test(gid) ? crypto.createHash("sha256").update(gid).digest("hex") : null;
+  next();
+}
+function shareAsset(req, res, next) {
+  const a = store.getAsset(req.params.id);
+  if (!a || a.status !== "uploaded" || a.project_id !== req.shareProject.id) return res.status(404).json({ error: "video inexistente" });
+  req.asset = a;
+  next();
+}
+const guestRate = new Map();
+function guestLimit(req, res, next) {
+  const k = req.ip + "|" + req.params.token, now = Date.now();
+  const r = guestRate.get(k) || { n: 0, t: now };
+  if (now - r.t > 10 * 60 * 1000) { r.n = 0; r.t = now; }
+  r.n++; guestRate.set(k, r);
+  if (r.n > 120) return res.status(429).json({ error: "muitas mensagens, aguarde alguns minutos" });
+  next();
+}
+const shareSettings = (sh) => ({ allow_download: !!sh.allow_download, allow_comments: !!sh.allow_comments, show_transcript: !!sh.show_transcript });
+
+app.get("/_s/:token/info", shareCtx, (req, res) =>
+  res.json({ project: req.shareProject.name, ...shareSettings(req.share) }));
+app.get("/_s/:token/assets", shareCtx, (req, res) => {
+  const list = Object.values(store.assets())
+    .filter((a) => a.status === "uploaded" && a.project_id === req.shareProject.id)
+    .map((a) => ({
+      id: a.id, name: a.name, filesize: a.filesize,
+      uploaded_at: a.uploaded_at || a.created_at, date: (a.uploaded_at || a.created_at || "").slice(0, 10),
+      comment_count: store.countComments(a.id), chapter_count: store.countChapters(a.id),
+      has_transcript: !!req.share.show_transcript && transcript.has(a.id),
+    }))
+    .sort((x, y) => String(y.uploaded_at).localeCompare(String(x.uploaded_at)));
+  res.json(list);
+});
+app.get("/_s/:token/media/:id", shareCtx, shareAsset, (req, res) => sendMedia(req, res, req.asset));
+app.get("/_s/:token/download/:id", shareCtx, shareAsset, (req, res) => {
+  if (!req.share.allow_download || !req.asset.stored_path || !fs.existsSync(req.asset.stored_path)) return res.status(404).end();
+  res.download(req.asset.stored_path, req.asset.name);
+});
+app.get("/_s/:token/assets/:id/chapters", shareCtx, shareAsset, (req, res) =>
+  res.json(store.listChapters(req.asset.id).map(({ key, ...c }) => c)));
+app.get("/_s/:token/assets/:id/transcript", shareCtx, shareAsset, (req, res) => {
+  const tr = req.share.show_transcript ? transcript.forPlayer(req.asset.id) : null;
+  if (!tr) return res.status(404).json({ error: "sem transcricao" });
+  delete tr.source_name; delete tr.source;
+  res.json(tr);
+});
+app.get("/_s/:token/assets/:id/comments", shareCtx, shareAsset, (req, res) =>
+  res.json(store.listComments(req.asset.id).map((c) => publicComment(c, req.guestHash))));
+app.post("/_s/:token/assets/:id/comments", shareCtx, shareAsset, guestLimit, (req, res) => {
+  if (!req.share.allow_comments) return res.status(403).json({ error: "comentarios desativados" });
+  if (!req.guestHash) return res.status(400).json({ error: "identificacao do convidado ausente" });
+  const b = req.body || {};
+  const name = String(b.name || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: "nome obrigatorio" });
+  const c = store.addComment(req.asset.id, { t: b.t, tEnd: b.t_end, parentId: b.parent_id, text: b.text, author: name, guestHash: req.guestHash });
+  if (!c) return res.status(400).json({ error: "texto obrigatorio" });
+  log(`    COMENTARIO de convidado "${name}" em "${req.asset.name}"`);
+  res.status(201).json(publicComment(c, req.guestHash));
+});
+// Convidado so apaga o PROPRIO comentario.
+app.delete("/_s/:token/assets/:id/comments/:cid", shareCtx, shareAsset, (req, res) => {
+  const c = store.listComments(req.asset.id).find((x) => x.id === req.params.cid);
+  if (!c || !req.guestHash || c.guest_hash !== req.guestHash) return res.status(403).json({ error: "so o autor pode apagar" });
+  res.json({ ok: store.deleteComment(req.asset.id, c.id) });
+});
+
 // ---- Comentarios -> DaVinci Resolve -----------------------------------------
 // Feed para o script "Import Fframe Comments" (tools/resolve). Aceita sessao ou
 // device key (crie um dispositivo "Resolve" no painel). Comentarios que vieram
-// do proprio Resolve (marcadores) sao marcados `from_resolve` p/ nao voltarem.
+// do proprio Resolve viraram capitulos, entao aqui so chegam comentarios reais.
 app.get("/_api/resolve/comments", requireAuth, (req, res) => {
   let list = Object.values(store.assets()).filter((a) => a.status === "uploaded");
   if (req.query.project) list = list.filter((a) => a.project_id === req.query.project);
@@ -609,7 +724,7 @@ app.get("/_api/resolve/comments", requireAuth, (req, res) => {
       library_folder: a.library_folder || null,
       comments: all.filter((c) => !c.parent_id).map((c) => ({
         id: c.id, t: c.t, t_end: c.t_end, text: c.text, author: authorName(c.author), resolved: !!c.resolved,
-        created_at: c.created_at, from_resolve: c.source === "resolve",
+        created_at: c.created_at, guest: !!c.guest,
         replies: all.filter((r) => r.parent_id === c.id).map((r) => ({ author: authorName(r.author), text: r.text, created_at: r.created_at })),
       })),
     };
@@ -634,15 +749,15 @@ app.get("/_api/assets/:id/markers.edl", requireAuth, (req, res) => {
   const all = store.listComments(a.id);
   const clean = (s) => String(s || "").replace(/\s*[\r\n|]+\s*/g, " ").trim();
   const lines = [`TITLE: ${clean(a.name)} - Fframe comments`, "FCM: NON-DROP FRAME", ""];
-  all.filter((c) => !c.parent_id && c.source !== "resolve").forEach((c, i) => {
+  all.filter((c) => !c.parent_id).forEach((c, i) => {
     // tempo real -> frames; o timecode nominal conta `base` frames por segundo
     const f0 = startF + Math.round(c.t * fps);
     const dur = c.t_end != null ? Math.max(1, Math.round((c.t_end - c.t) * fps)) : 1;
     const reps = all.filter((r) => r.parent_id === c.id).map((r) => `${authorName(r.author)}: ${r.text}`);
-    const note = clean([`${authorName(c.author)}: ${c.text}`].concat(reps).join(" / "));
+    const note = clean([`${authorName(c.author)}: ${c.text}`].concat(reps, c.resolved ? ["(resolved in Fframe)"] : []).join(" / "));
     const n = String(i + 1).padStart(3, "0");
     lines.push(`${n}  001      V     C        ${tc(f0)} ${tc(f0 + 1)} ${tc(f0)} ${tc(f0 + 1)}  `);
-    lines.push(` |C:ResolveColor${c.resolved ? "Green" : "Red"} |M:${note.slice(0, 900)} |D:${dur}`);
+    lines.push(` |C:ResolveColorRed |M:${note.slice(0, 900)} |D:${dur}`);
     lines.push("");
   });
   const fname = path.basename(a.name, path.extname(a.name)).replace(/[^\w.-]+/g, "_") + "_fframe_markers.edl";
@@ -657,12 +772,12 @@ app.get("/_status", requireAuth, (req, res) => {
     name: a.name, project: a.project_name, filesize: a.filesize, status: a.status,
     parts: `${a.received_parts.length}/${a.expected_parts}`, id: a.id,
   }));
-  res.json({ projects: store.listProjects(), count: list.length, assets: list });
+  res.json({ projects: store.listProjects().map(({ share, ...p }) => p), count: list.length, assets: list });
 });
 
 // ---- Streaming e download de video (exige login) ----------------------------
-app.get("/_media/:id", requireAuth, (req, res) => {
-  const a = store.getAsset(req.params.id);
+app.get("/_media/:id", requireAuth, (req, res) => sendMedia(req, res, store.getAsset(req.params.id)));
+function sendMedia(req, res, a) {
   if (!a || !a.stored_path || !fs.existsSync(a.stored_path)) return res.status(404).end();
   const stat = fs.statSync(a.stored_path);
   const type = a.filetype && a.filetype.startsWith("video") ? a.filetype : "video/mp4";
@@ -682,7 +797,7 @@ app.get("/_media/:id", requireAuth, (req, res) => {
     res.writeHead(200, { "Content-Length": stat.size, "Content-Type": type, "Accept-Ranges": "bytes" });
     fs.createReadStream(a.stored_path).pipe(res);
   }
-});
+}
 app.get("/_download/:id", requireAuth, (req, res) => {
   const a = store.getAsset(req.params.id);
   if (!a || !a.stored_path || !fs.existsSync(a.stored_path)) return res.status(404).end();
