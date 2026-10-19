@@ -112,7 +112,7 @@ async function scan(linkId) {
     const r = resolveSafe(link.path);
     // Pasta sumiu ou sem permissao (share desmontado, ACL...): NAO apaga o
     // indice — senao os comentarios se perderiam. So registra o erro.
-    let readErr = r ? null : "pasta nao encontrada";
+    let readErr = r ? null : "folder not found";
     if (r) { try { await fs.promises.readdir(r.abs); } catch (e) { readErr = e.code || e.message; } }
     if (readErr) { link.error = readErr; link.last_scan = new Date().toISOString(); persist(); return link; }
     link.error = null;
@@ -177,10 +177,10 @@ function attachSiblingTranscript(asset, videoPath, transcripts) {
 
 async function addLink({ relPath, projectId, recursive }) {
   const r = resolveSafe(relPath);
-  if (!r) return { error: "pasta invalida" };
-  try { if (!fs.statSync(r.abs).isDirectory()) return { error: "nao e uma pasta" }; } catch { return { error: "pasta invalida" }; }
-  if (!store.getProject(projectId)) return { error: "projeto inexistente" };
-  if (links.some((l) => l.path === r.rel && l.project_id === projectId)) return { error: "pasta ja vinculada a este projeto" };
+  if (!r) return { error: "invalid folder" };
+  try { if (!fs.statSync(r.abs).isDirectory()) return { error: "not a folder" }; } catch { return { error: "invalid folder" }; }
+  if (!store.getProject(projectId)) return { error: "project not found" };
+  if (links.some((l) => l.path === r.rel && l.project_id === projectId)) return { error: "folder is already linked to this project" };
   const link = {
     id: store.uuid(), path: r.rel, project_id: projectId, recursive: recursive !== false,
     hidden: [], added_at: new Date().toISOString(), last_scan: null, count: 0, error: null,

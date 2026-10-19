@@ -433,6 +433,7 @@ select.fld{appearance:auto}
   .rv-top{padding:10px 12px;gap:10px}
   .rv-back{max-width:40%}
   .rv-body{flex-direction:column;padding:10px 12px 20px;gap:12px}
+  .rv-main,.rv .pv{flex:0 0 auto}
   .rv .pv-stage{flex:0 0 auto;aspect-ratio:16/9}
   .rv .player-side{flex:0 0 auto}
   .pv-btns{flex-wrap:wrap;row-gap:4px}
@@ -443,3 +444,33 @@ select.fld{appearance:auto}
   .share-top{padding:12px 16px}
   .share-main{padding:16px 16px 40px}
 }
+
+/* ---- cabecalho do projeto: titulo a esquerda, botoes a direita ---- */
+.top #count{margin-right:auto}
+.top .top-btn,.top .top-share,.top-btn + .top-share,.top-btn.hidden + .top-share{margin-left:0}
+
+/* ---- menu suspenso (Download -> Video / Transcricao) ---- */
+.menu-pop{position:fixed;z-index:95;min-width:220px;max-width:320px;background:var(--charcoal);border:1px solid var(--line);
+  border-radius:12px;padding:5px;box-shadow:0 16px 40px rgba(0,0,0,.55);display:flex;flex-direction:column}
+.menu-item{display:flex;flex-direction:column;gap:2px;padding:9px 11px;border-radius:8px;color:var(--ink);text-decoration:none;outline:none}
+.menu-item:hover,.menu-item:focus-visible{background:var(--graphite)}
+.menu-l{font-size:13.5px;font-weight:550}
+.menu-s{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .act{font-family:inherit}
+
+/* ---- atalhos de teclado ---- */
+.rv-keys{display:flex;align-items:center;gap:6px;padding:5px 11px}
+.rv-keys svg{width:18px;height:18px}
+.info-card{max-width:440px}
+.keys{display:flex;flex-direction:column;gap:2px}
+.key-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+.key-row:last-child{border-bottom:none}
+.key-k{display:flex;gap:6px;flex-wrap:wrap;flex:0 0 auto}
+.key-d{color:var(--muted);text-align:right}
+kbd{font-family:ui-monospace,monospace;font-size:11.5px;background:var(--graphite);border:1px solid var(--line);border-bottom-width:2px;
+  border-radius:6px;padding:2px 7px;color:var(--ink);min-width:22px;text-align:center;display:inline-block}
+
+/* ---- tela cheia da pagina inteira ---- */
+html.is-fs .review{z-index:60}
+html.is-fs .rv-body{padding-bottom:12px}
+@media(max-width:860px){ .rv-keys span{display:none} }

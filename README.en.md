@@ -21,7 +21,7 @@ on-device, and a web panel to organize, watch, and share.
 
 ## This fork: TrueNAS build
 
-This fork adds a **TrueNAS SCALE app** (prebuilt image `ghcr.io/shaelr/fframe`), a **Library** for indexing folders already on the NAS without copying them, **Resolve-style transcripts** (click a word to jump), and **DaVinci Resolve scripts** that sync transcripts, markers and client comments both ways. Install guide: [`truenas/INSTALL.md`](truenas/INSTALL.md).
+This fork adds a **TrueNAS SCALE app** (prebuilt image `ghcr.io/shaelr/fframe`), a **Library** for indexing folders already on the NAS without copying them, **Resolve-style transcripts** (click a word to jump), and **DaVinci Resolve scripts** that sync transcripts, markers and client comments both ways, plus **client share links**, chapters, and transcript export to Word. The panel is English-only. Install guide: [`truenas/INSTALL.md`](truenas/INSTALL.md).
 
 ## What it is
 

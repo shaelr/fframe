@@ -73,7 +73,7 @@ function authRate(req, res, next) {
   if (now - rec.t > 15 * 60 * 1000) { rec.n = 0; rec.t = now; }
   rec.n++;
   authAttempts.set(ip, rec);
-  if (rec.n > 10) return res.status(429).json({ error: "Muitas tentativas. Aguarde alguns minutos." });
+  if (rec.n > 10) return res.status(429).json({ error: "Too many attempts. Try again in a few minutes." });
   next();
 }
 // Exige login (validado no SERVIDOR — o frontend nao decide nada).
@@ -84,7 +84,7 @@ function requireAuth(req, res, next) {
   const key = req.headers["x-device-key"] || req.query.key;
   const dev = store.findDeviceByKey(key);
   if (dev) { req.device = dev; return next(); }
-  res.status(401).json({ error: "nao autenticado" });
+  res.status(401).json({ error: "not signed in" });
 }
 
 // So sessao de admin (painel) -- NAO aceita device key. Usado nas rotas que
@@ -92,7 +92,7 @@ function requireAuth(req, res, next) {
 // revogar chaves de outros dispositivos.
 function requireAdminSession(req, res, next) {
   if (req.session && req.session.authed && !req.device) return next();
-  res.status(401).json({ error: "requer login no painel" });
+  res.status(401).json({ error: "admin login required" });
 }
 
 // ---- LOG de tudo (nossa janela de depuracao) --------------------------------
@@ -425,11 +425,11 @@ app.get("/_auth/status", (req, res) =>
 
 // Primeiro acesso: o usuario define login+senha direto no navegador (via HTTPS).
 app.post("/_auth/setup", authRate, async (req, res) => {
-  if (store.isConfigured()) return res.status(409).json({ error: "ja configurado" });
+  if (store.isConfigured()) return res.status(409).json({ error: "already set up" });
   const user = String((req.body && req.body.user) || "").trim();
   const password = String((req.body && req.body.password) || "");
   if (user.length < 3 || password.length < 6)
-    return res.status(400).json({ error: "usuario (min 3) e senha (min 6 caracteres) obrigatorios" });
+    return res.status(400).json({ error: "username (at least 3 characters) and password (at least 6) are required" });
   const hash = await bcrypt.hash(password, 12);
   store.setAuth(user, hash);
   req.session.authed = true; req.session.user = user;
@@ -443,7 +443,7 @@ app.post("/_auth/login", authRate, async (req, res) => {
   const user = String((req.body && req.body.user) || "");
   const password = String((req.body && req.body.password) || "");
   const ok = !!auth && user === auth.user && (await bcrypt.compare(password, auth.hash));
-  if (!ok) return res.status(401).json({ error: "credenciais invalidas" }); // generico de proposito
+  if (!ok) return res.status(401).json({ error: "invalid credentials" }); // generico de proposito
   req.session.authed = true; req.session.user = auth.user;
   applyRemember(req);
   res.json({ ok: true });
@@ -470,19 +470,20 @@ app.get("/_api/projects", requireAuth, (req, res) => {
   res.json(store.listProjects().map(({ share, ...p }) => ({
     ...p,
     shared: !!(share && share.enabled),   // o token so sai em /_api/projects/:id/share (admin)
+    settings: store.getSettings(p.id),
     connected: p.id === connId,
     video_count: all.filter((a) => a.project_id === p.id && a.status === "uploaded").length,
   })));
 });
 app.post("/_api/projects", requireAuth, (req, res) => {
   const name = (req.body && req.body.name) || "";
-  if (!String(name).trim()) return res.status(400).json({ error: "nome obrigatorio" });
+  if (!String(name).trim()) return res.status(400).json({ error: "name is required" });
   res.status(201).json(store.createProject(name));
 });
 app.delete("/_api/projects/:id", requireAuth, (req, res) => {
   const ok = store.deleteProject(req.params.id);
   if (ok) library.dropLinksForProject(req.params.id);
-  res.status(ok ? 200 : 400).json({ ok, error: ok ? undefined : "nao pode remover (ultimo projeto ou inexistente)" });
+  res.status(ok ? 200 : 400).json({ ok, error: ok ? undefined : "can't delete the last project, or it doesn't exist" });
 });
 app.get("/_api/assets", requireAuth, (req, res) => {
   const projectId = req.query.project;
@@ -508,7 +509,7 @@ app.get("/_api/assets", requireAuth, (req, res) => {
 app.delete("/_api/assets/:id", requireAuth, (req, res) => {
   const a = store.getAsset(req.params.id);
   if (a && a.source === "library") {
-    if (!(req.session && req.session.authed) || req.device) return res.status(401).json({ error: "requer login no painel" });
+    if (!(req.session && req.session.authed) || req.device) return res.status(401).json({ error: "admin login required" });
     library.hideAsset(a);
     log(`    BIBLIOTECA: video removido do Fframe (arquivo mantido): "${a.name}"`);
     return res.json({ ok: true });
@@ -527,20 +528,20 @@ const publicComment = (c, guestHash) => {
 
 // ---- Comentarios com timestamp (revisao no painel) — exige login ------------
 app.get("/_api/assets/:id/comments", requireAuth, (req, res) => {
-  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
+  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video not found" });
   res.json(store.listComments(req.params.id).map((c) => publicComment(c)));
 });
 // Capitulos = marcadores do Resolve (somente leitura no painel).
 app.get("/_api/assets/:id/chapters", requireAuth, (req, res) => {
-  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
+  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video not found" });
   res.json(store.listChapters(req.params.id));
 });
 app.post("/_api/assets/:id/comments", requireAuth, (req, res) => {
-  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
+  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video not found" });
   const author = (req.session && req.session.user) || (req.device && ("device:" + req.device.name)) || null;
   const b = req.body || {};
   const c = store.addComment(req.params.id, { t: b.t, tEnd: b.t_end, parentId: b.parent_id, text: b.text, author });
-  if (!c) return res.status(400).json({ error: "texto obrigatorio" });
+  if (!c) return res.status(400).json({ error: "text is required" });
   res.status(201).json(c);
 });
 app.patch("/_api/assets/:id/comments/:cid", requireAuth, (req, res) => {
@@ -554,14 +555,14 @@ app.delete("/_api/assets/:id/comments/:cid", requireAuth, (req, res) => {
 
 // ---- Transcricoes (clicar no texto -> vai para o ponto do video) ------------
 app.get("/_api/assets/:id/transcript", requireAuth, (req, res) => {
-  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
+  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video not found" });
   const tr = transcript.forPlayer(req.params.id);
-  if (!tr) return res.status(404).json({ error: "sem transcricao" });
+  if (!tr) return res.status(404).json({ error: "no transcript" });
   res.json(tr);
 });
 // Corpo: { filename, content, fps } (o painel le o arquivo e manda o texto).
 app.put("/_api/assets/:id/transcript", requireAdminSession, (req, res) => {
-  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video inexistente" });
+  if (!store.getAsset(req.params.id)) return res.status(404).json({ error: "video not found" });
   const b = req.body || {};
   const r = transcript.parse(b.content, { filename: b.filename, fps: b.fps });
   if (r.error) return res.status(400).json({ error: r.error });
@@ -571,7 +572,7 @@ app.put("/_api/assets/:id/transcript", requireAdminSession, (req, res) => {
 });
 app.patch("/_api/assets/:id/transcript", requireAdminSession, (req, res) => {
   const d = transcript.update(req.params.id, req.body || {});
-  if (!d) return res.status(404).json({ error: "sem transcricao" });
+  if (!d) return res.status(404).json({ error: "no transcript" });
   res.json(transcript.forPlayer(req.params.id));
 });
 app.delete("/_api/assets/:id/transcript", requireAdminSession, (req, res) =>
@@ -583,7 +584,7 @@ function importFiles(vids, files, fps) {
   vids.forEach((a) => { const k = transcript.matchKey(a.name); (byKey.get(k) || byKey.set(k, []).get(k)).push(a); });
   return (Array.isArray(files) ? files : []).slice(0, 500).map((f) => {
     const targets = byKey.get(transcript.matchKey(f.filename)) || [];
-    if (!targets.length) return { filename: f.filename, ok: false, error: "nenhum video com esse nome" };
+    if (!targets.length) return { filename: f.filename, ok: false, error: "no video with that name" };
     const r = transcript.parse(f.content, { filename: f.filename, fps });
     if (r.error) return { filename: f.filename, ok: false, error: r.error };
     let markers = 0;
@@ -598,7 +599,7 @@ function importFiles(vids, files, fps) {
 // Varias de uma vez: casa cada arquivo com o video de mesmo nome no projeto.
 // Corpo: { fps, files: [{ filename, content }] }
 app.post("/_api/projects/:id/transcripts", requireAdminSession, (req, res) => {
-  if (!store.getProject(req.params.id)) return res.status(404).json({ error: "projeto inexistente" });
+  if (!store.getProject(req.params.id)) return res.status(404).json({ error: "project not found" });
   const b = req.body || {};
   const vids = Object.values(store.assets()).filter((a) => a.project_id === req.params.id && a.status === "uploaded");
   const results = importFiles(vids, b.files, b.fps).map((r) => ({ ...r, videos: r.videos && r.videos.map((v) => v.name) }));
@@ -625,21 +626,46 @@ app.post("/_api/resolve/import", requireAuth, (req, res) => {
 // =============================================================================
 app.get("/_api/projects/:id/share", requireAdminSession, (req, res) => {
   const p = store.getProject(req.params.id);
-  if (!p) return res.status(404).json({ error: "projeto inexistente" });
+  if (!p) return res.status(404).json({ error: "project not found" });
   res.json(store.getShare(p.id));
 });
 app.patch("/_api/projects/:id/share", requireAdminSession, (req, res) => {
   const p = store.getProject(req.params.id);
-  if (!p) return res.status(404).json({ error: "projeto inexistente" });
+  if (!p) return res.status(404).json({ error: "project not found" });
   const sh = store.updateShare(p.id, req.body || {});
   log(`    COMPARTILHAMENTO "${p.name}": ${sh.enabled ? "ativo" : "desativado"}${(req.body || {}).regenerate ? " (novo link)" : ""}`);
   res.json(sh);
 });
 
+// Recursos do projeto (capitulos, transcricao) — valem para admin e cliente.
+app.patch("/_api/projects/:id/settings", requireAdminSession, (req, res) => {
+  const st = store.updateSettings(req.params.id, req.body || {});
+  if (!st) return res.status(404).json({ error: "project not found" });
+  res.json(st);
+});
+
+// Transcricao como documento do Word (.doc).
+function sendTranscriptDoc(res, a) {
+  const tr = transcript.forPlayer(a.id);
+  if (!tr) return res.status(404).json({ error: "no transcript" });
+  const st = store.getSettings(a.project_id);
+  const doc = transcript.toWordDoc({ title: path.basename(a.name, path.extname(a.name)), project: a.project_name, tr,
+    chapters: st.chapters ? store.listChapters(a.id) : [] });
+  const fname = `${path.basename(a.name, path.extname(a.name))} - Transcript.doc`;
+  res.set("Content-Type", "application/msword; charset=utf-8");
+  res.set("Content-Disposition", `attachment; filename="${fname.replace(/[^\x20-\x7e]|["\\]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(fname)}`);
+  res.send("\ufeff" + doc);
+}
+app.get("/_api/assets/:id/transcript.doc", requireAuth, (req, res) => {
+  const a = store.getAsset(req.params.id);
+  if (!a) return res.status(404).end();
+  sendTranscriptDoc(res, a);
+});
+
 // Resolve o token -> projeto. Link desativado/inexistente = 404 generico.
 function shareCtx(req, res, next) {
   const p = store.getProjectByShareToken(req.params.token);
-  if (!p) return res.status(404).json({ error: "link invalido ou desativado" });
+  if (!p) return res.status(404).json({ error: "link is invalid or turned off" });
   req.shareProject = p;
   req.share = p.share;
   const gid = String(req.headers["x-guest-id"] || "");
@@ -648,7 +674,7 @@ function shareCtx(req, res, next) {
 }
 function shareAsset(req, res, next) {
   const a = store.getAsset(req.params.id);
-  if (!a || a.status !== "uploaded" || a.project_id !== req.shareProject.id) return res.status(404).json({ error: "video inexistente" });
+  if (!a || a.status !== "uploaded" || a.project_id !== req.shareProject.id) return res.status(404).json({ error: "video not found" });
   req.asset = a;
   next();
 }
@@ -658,55 +684,68 @@ function guestLimit(req, res, next) {
   const r = guestRate.get(k) || { n: 0, t: now };
   if (now - r.t > 10 * 60 * 1000) { r.n = 0; r.t = now; }
   r.n++; guestRate.set(k, r);
-  if (r.n > 120) return res.status(429).json({ error: "muitas mensagens, aguarde alguns minutos" });
+  if (r.n > 120) return res.status(429).json({ error: "too many messages, try again in a few minutes" });
   next();
 }
-const shareSettings = (sh) => ({ allow_download: !!sh.allow_download, allow_comments: !!sh.allow_comments, show_transcript: !!sh.show_transcript });
+// O que o cliente pode ver/fazer: opcoes do link + recursos do projeto.
+const shareSettings = (req) => {
+  const st = store.getSettings(req.shareProject.id), sh = req.share;
+  return {
+    allow_comments: !!sh.allow_comments, chapters: !!st.chapters, transcript: !!st.transcript,
+    allow_download_video: !!sh.allow_download_video,
+    allow_download_transcript: !!sh.allow_download_transcript && !!st.transcript,
+  };
+};
 
 app.get("/_s/:token/info", shareCtx, (req, res) =>
-  res.json({ project: req.shareProject.name, ...shareSettings(req.share) }));
+  res.json({ project: req.shareProject.name, ...shareSettings(req) }));
 app.get("/_s/:token/assets", shareCtx, (req, res) => {
   const list = Object.values(store.assets())
     .filter((a) => a.status === "uploaded" && a.project_id === req.shareProject.id)
     .map((a) => ({
       id: a.id, name: a.name, filesize: a.filesize,
       uploaded_at: a.uploaded_at || a.created_at, date: (a.uploaded_at || a.created_at || "").slice(0, 10),
-      comment_count: store.countComments(a.id), chapter_count: store.countChapters(a.id),
-      has_transcript: !!req.share.show_transcript && transcript.has(a.id),
+      comment_count: store.countComments(a.id),
+      chapter_count: store.getSettings(req.shareProject.id).chapters ? store.countChapters(a.id) : 0,
+      has_transcript: store.getSettings(req.shareProject.id).transcript && transcript.has(a.id),
     }))
     .sort((x, y) => String(y.uploaded_at).localeCompare(String(x.uploaded_at)));
   res.json(list);
 });
 app.get("/_s/:token/media/:id", shareCtx, shareAsset, (req, res) => sendMedia(req, res, req.asset));
 app.get("/_s/:token/download/:id", shareCtx, shareAsset, (req, res) => {
-  if (!req.share.allow_download || !req.asset.stored_path || !fs.existsSync(req.asset.stored_path)) return res.status(404).end();
+  if (!req.share.allow_download_video || !req.asset.stored_path || !fs.existsSync(req.asset.stored_path)) return res.status(404).end();
   res.download(req.asset.stored_path, req.asset.name);
 });
+app.get("/_s/:token/transcript/:id", shareCtx, shareAsset, (req, res) => {
+  if (!shareSettings(req).allow_download_transcript) return res.status(404).end();
+  sendTranscriptDoc(res, req.asset);
+});
 app.get("/_s/:token/assets/:id/chapters", shareCtx, shareAsset, (req, res) =>
-  res.json(store.listChapters(req.asset.id).map(({ key, ...c }) => c)));
+  res.json(store.getSettings(req.shareProject.id).chapters ? store.listChapters(req.asset.id).map(({ key, ...c }) => c) : []));
 app.get("/_s/:token/assets/:id/transcript", shareCtx, shareAsset, (req, res) => {
-  const tr = req.share.show_transcript ? transcript.forPlayer(req.asset.id) : null;
-  if (!tr) return res.status(404).json({ error: "sem transcricao" });
+  const tr = store.getSettings(req.shareProject.id).transcript ? transcript.forPlayer(req.asset.id) : null;
+  if (!tr) return res.status(404).json({ error: "no transcript" });
   delete tr.source_name; delete tr.source;
   res.json(tr);
 });
 app.get("/_s/:token/assets/:id/comments", shareCtx, shareAsset, (req, res) =>
   res.json(store.listComments(req.asset.id).map((c) => publicComment(c, req.guestHash))));
 app.post("/_s/:token/assets/:id/comments", shareCtx, shareAsset, guestLimit, (req, res) => {
-  if (!req.share.allow_comments) return res.status(403).json({ error: "comentarios desativados" });
-  if (!req.guestHash) return res.status(400).json({ error: "identificacao do convidado ausente" });
+  if (!req.share.allow_comments) return res.status(403).json({ error: "comments are turned off" });
+  if (!req.guestHash) return res.status(400).json({ error: "missing guest id" });
   const b = req.body || {};
   const name = String(b.name || "").replace(/\s+/g, " ").trim().slice(0, 60);
-  if (!name) return res.status(400).json({ error: "nome obrigatorio" });
+  if (!name) return res.status(400).json({ error: "name is required" });
   const c = store.addComment(req.asset.id, { t: b.t, tEnd: b.t_end, parentId: b.parent_id, text: b.text, author: name, guestHash: req.guestHash });
-  if (!c) return res.status(400).json({ error: "texto obrigatorio" });
+  if (!c) return res.status(400).json({ error: "text is required" });
   log(`    COMENTARIO de convidado "${name}" em "${req.asset.name}"`);
   res.status(201).json(publicComment(c, req.guestHash));
 });
 // Convidado so apaga o PROPRIO comentario.
 app.delete("/_s/:token/assets/:id/comments/:cid", shareCtx, shareAsset, (req, res) => {
   const c = store.listComments(req.asset.id).find((x) => x.id === req.params.cid);
-  if (!c || !req.guestHash || c.guest_hash !== req.guestHash) return res.status(403).json({ error: "so o autor pode apagar" });
+  if (!c || !req.guestHash || c.guest_hash !== req.guestHash) return res.status(403).json({ error: "only the author can delete this" });
   res.json({ ok: store.deleteComment(req.asset.id, c.id) });
 });
 
@@ -809,7 +848,7 @@ app.get("/_download/:id", requireAuth, (req, res) => {
 app.post("/_ingest", (req, res) => {
   const key = req.headers["x-device-key"] || "";
   const dev = store.findDeviceByKey(key); // qualquer dispositivo ATIVO; revogado = 401
-  if (!dev) return res.status(401).json({ error: "device key invalida" });
+  if (!dev) return res.status(401).json({ error: "invalid device key" });
   const name = req.query.name || "video.mp4";
   const filetype = req.headers["content-type"] || "video/mp4";
   const projectId = req.query.project;
@@ -844,7 +883,7 @@ app.get("/_api/device-key", requireAuth, (req, res) => {
 app.get("/_api/devices", requireAdminSession, (req, res) => res.json(store.listDevices()));
 app.post("/_api/devices", requireAdminSession, (req, res) => {
   const name = String((req.body && req.body.name) || "").trim();
-  if (!name) return res.status(400).json({ error: "nome obrigatorio" });
+  if (!name) return res.status(400).json({ error: "name is required" });
   const d = store.createDevice(name);
   log(`    DISPOSITIVO criado: "${d.name}" (${d.id})`);
   res.status(201).json(d);
@@ -852,22 +891,22 @@ app.post("/_api/devices", requireAdminSession, (req, res) => {
 app.delete("/_api/devices/:id", requireAdminSession, (req, res) => {
   const ok = store.revokeDevice(req.params.id);
   if (ok) log(`    DISPOSITIVO revogado: ${req.params.id}`);
-  res.status(ok ? 200 : 404).json({ ok, error: ok ? undefined : "dispositivo inexistente ou ja revogado" });
+  res.status(ok ? 200 : 404).json({ ok, error: ok ? undefined : "device not found or already revoked" });
 });
 
 // ---- Biblioteca: vincular pastas que ja existem no NAS — so admin ----------
 app.get("/_api/library/status", requireAdminSession, (req, res) =>
   res.json({ enabled: library.enabled(), root: library.LIBRARY_DIR }));
 app.get("/_api/library/browse", requireAdminSession, (req, res) => {
-  if (!library.enabled()) return res.status(404).json({ error: "biblioteca nao montada" });
+  if (!library.enabled()) return res.status(404).json({ error: "library is not mounted" });
   const r = library.browse(req.query.path || "");
-  if (!r) return res.status(400).json({ error: "pasta invalida" });
+  if (!r) return res.status(400).json({ error: "invalid folder" });
   res.json(r);
 });
 app.get("/_api/library/links", requireAdminSession, (req, res) =>
   res.json(library.listLinks().map((l) => ({ ...l, hidden: undefined, hidden_count: (l.hidden || []).length, scanning: library.isScanning(l.id) }))));
 app.post("/_api/library/links", requireAdminSession, async (req, res) => {
-  if (!library.enabled()) return res.status(404).json({ error: "biblioteca nao montada" });
+  if (!library.enabled()) return res.status(404).json({ error: "library is not mounted" });
   const b = req.body || {};
   const r = await library.addLink({ relPath: b.path, projectId: b.project_id, recursive: b.recursive });
   if (r.error) return res.status(400).json({ error: r.error });
@@ -875,7 +914,7 @@ app.post("/_api/library/links", requireAdminSession, async (req, res) => {
   res.status(201).json(r.link);
 });
 app.post("/_api/library/links/:id/rescan", requireAdminSession, async (req, res) => {
-  if (!library.getLink(req.params.id)) return res.status(404).json({ error: "vinculo inexistente" });
+  if (!library.getLink(req.params.id)) return res.status(404).json({ error: "link not found" });
   const l = await library.scan(req.params.id);
   res.json(l);
 });

@@ -70,7 +70,9 @@ Routes: `GET /_api/assets/:id/transcript` (login), `PUT`/`PATCH`/`DELETE` same p
 
 - The player is a full page: `/v/<assetId>` for the admin and `/s/<token>/v/<assetId>` for clients. The side panel has Chapters | Comments | Transcript tabs.
 - **Chapters** are Resolve markers (`data/chapters.json`), synced by the Resolve export: `GET /_api/assets/:id/chapters`. Keys: ↑/↓ previous/next chapter, M mute, F fullscreen.
-- **Share links** (`project.share` in `data/projects.json`): `GET/PATCH /_api/projects/:id/share` (admin session) with `enabled`, `allow_comments`, `allow_download`, `show_transcript`, `regenerate`. Clients use `/_s/<token>/…` (info, assets, media, download, chapters, transcript, comments). Every request is checked against the token's project and settings. A guest is identified by a random `X-Guest-Id`, stored only as a hash, so they can delete only their own comments. The token is redacted from the request log.
+- **Project settings** (`project.settings`): `PATCH /_api/projects/:id/settings` with `chapters`, `transcript`. A feature that's off is hidden for the admin and blocked for clients.
+- **Transcript export**: `GET /_api/assets/:id/transcript.doc` (and `/_s/<token>/transcript/<id>` when allowed) returns a Word-compatible `.doc`.
+- **Share links** (`project.share` in `data/projects.json`): `GET/PATCH /_api/projects/:id/share` (admin session) with `enabled`, `allow_comments`, `allow_download_video`, `allow_download_transcript`, `regenerate`. Clients use `/_s/<token>/…` (info, assets, media, download, chapters, transcript, comments). Every request is checked against the token's project and settings. A guest is identified by a random `X-Guest-Id`, stored only as a hash, so they can delete only their own comments. The token is redacted from the request log.
 
 ## Comments back to Resolve
 

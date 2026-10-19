@@ -97,6 +97,16 @@ Comments from Fframe, yours and your clients', come back into Resolve as **red m
 **Option B: no script, timeline only**
 In the Fframe player, click **⤓ Resolve**, enter the timeline's frame rate and start timecode, and download the `.edl`. Then in Resolve, open the timeline and use **Timeline → Import → Timeline Markers from EDL**. Use this for a one-off. Importing again adds a second copy instead of updating.
 
+## Project settings
+
+Click **⚙ Settings** in a project to turn **Chapters** or **Transcripts** off for projects that don't use them. They're hidden for you and for anyone viewing the share link, including the tabs, the chapter buttons and the transcript download. Your data isn't deleted, so turning a setting back on brings everything back.
+
+## The review page
+
+- **Download** gets the video, or the transcript as a Word document (.doc) with the title, chapters as headings, speaker names and timecodes.
+- **⌨ Shortcuts** (or press **?**) lists the keyboard shortcuts. You and your clients both see it.
+- **Full screen** (the ⛶ button, or **F**) puts the whole review page in full screen, so you can still read and write comments and jump between chapters. On iPhone, Safari only allows full screen for the video itself.
+
 ## Sharing a project with a client
 
 Clients review on a private link with no account or login, the same way Frame.io works.
@@ -105,8 +115,10 @@ Clients review on a private link with no account or login, the same way Frame.io
 2. Turn on **Share link** and click **Copy**. Send that link to your client.
 3. Choose what the client can do:
    - **Comment**: leave comments and replies (on by default).
-   - **Download videos**: show download buttons (off by default).
-   - **See transcripts**: show the Transcript tab when a video has one (on by default).
+   - **Download videos**: download the video files (off by default).
+   - **Download transcripts**: download a video's transcript as a Word document (.doc) (off by default).
+
+   When both downloads are allowed, the **download** button opens a small menu to pick **Video** or **Transcript (.doc)**.
 
 When the client opens the link, they're asked for their name once. Their comments show that name, with a "guest" label for you. Clients can reply and delete their own comments. Resolving comments, deleting anyone else's, transcript settings and the Resolve EDL button are only for you.
 

@@ -362,7 +362,7 @@ def main():
             path = write(doc, clip)
             if path and not res.get("ok"):
                 reason = ("no video named like it in Fframe yet - upload the render as \"%s.mp4\"" % doc["clip"]
-                          if doc.get("timeline") else "no video named like it in Fframe yet") if res.get("error") == "nenhum video com esse nome" else (res.get("error") or problem or "not sent")
+                          if doc.get("timeline") else "no video named like it in Fframe yet") if res.get("error") in ("no video with that name", "nenhum video com esse nome") else (res.get("error") or problem or "not sent")
                 saved.append("%s (%s) -> %s" % (clip.GetName(), reason, path))
             elif not path and not res.get("ok"):
                 failed.append(clip.GetName())

@@ -1,261 +1,8 @@
 "use strict";
-// i18n do painel. Para adicionar um idioma novo, basta acrescentar um bloco em
-// LANGS com as mesmas chaves — o seletor do painel se atualiza sozinho.
-// Chaves que faltarem caem no pt-BR (idioma de referencia).
-//
-// Placeholders: use {nome} no texto e passe { nome: valor } em t().
+// Textos do painel (somente ingles). Placeholders: use {nome} no texto e passe
+// { nome: valor } em t("chave", vars).
 
-const LANGS = {
-  "pt-BR": {
-    _label: "Português",
-    _flag: "🇧🇷",
-    _locale: "pt-BR",
-
-    "auth.title.signin": "Entrar",
-    "auth.title.setup": "Criar acesso",
-    "auth.sub.setup": "Primeiro acesso: defina um usuário e senha. Ficam guardados com segurança (hash) só no servidor.",
-    "auth.user": "Usuário",
-    "auth.pass": "Senha",
-    "auth.pass2": "Repita a senha",
-    "auth.remember": "Manter conectado",
-    "auth.btn.signin": "Entrar",
-    "auth.btn.setup": "Criar e entrar",
-    "auth.err.mismatch": "As senhas não conferem.",
-    "auth.err.invalid": "Usuário ou senha inválidos.",
-    "auth.err.generic": "Erro.",
-
-    "side.projects": "Projetos",
-    "side.newProject": "＋ Novo Projeto",
-    "side.settings": "Configurações",
-    "side.devices": "📱 Dispositivos",
-    "side.logout": "Sair",
-    "side.language": "Idioma",
-    "side.stats": "{projects} proj · {videos} víd",
-
-    "title.allVideos": "Todos os vídeos",
-    "title.devices": "Dispositivos",
-    "count.videos": "{n} vídeo(s)",
-    "count.devices": "{n} ativo(s)",
-    "menu.aria": "menu",
-
-    "empty.videos.title": "Nenhum vídeo aqui ainda.",
-    "empty.videos.hint": "Grave com o Fframe Uploader e o auto-envio ligado.",
-    "empty.devices.title": "Nenhum dispositivo ainda.",
-    "empty.devices.hint": "Adicione um pra gerar a chave do app.",
-
-    "card.download": "baixar",
-    "card.delete": "excluir",
-    "player.close": "fechar",
-
-    "cmt.title": "Comentários",
-    "cmt.count": "{n}",
-    "cmt.empty": "Nenhum comentário ainda.",
-    "cmt.emptyHint": "Pause no ponto que quer comentar e escreva abaixo.",
-    "cmt.at": "em {time}",
-    "cmt.placeholder": "Comentar em {time}…",
-    "cmt.send": "Enviar",
-    "cmt.sending": "Enviando…",
-    "cmt.now": "usar momento atual",
-    "cmt.jump": "ir para {time}",
-    "cmt.resolve": "resolver",
-    "cmt.reopen": "reabrir",
-    "cmt.resolved": "resolvido",
-    "cmt.delete": "excluir",
-    "cmt.delete.confirm": "Excluir este comentário?",
-    "cmt.added": "Comentário adicionado.",
-    "cmt.deleted": "Comentário excluído.",
-    "cmt.add.fail": "Não foi possível comentar.",
-    "cmt.delete.fail": "Não foi possível excluir.",
-    "cmt.you": "Você",
-    "cmt.range": "{from} – {to}",
-    "cmt.markIn": "＋ marcar trecho",
-    "cmt.markOut": "marcar fim (fim > início)",
-    "cmt.clearOut": "✕ limpar trecho",
-    "cmt.rangeStart": "início {from} · agora marque o fim",
-    "cmt.rangeStarted": "Início do trecho em {from}. Vá até o fim e clique em “marcar fim”.",
-    "cmt.rangeEndAfter": "O fim do trecho precisa vir depois do início.",
-    "cmt.reply": "responder",
-    "cmt.replyPlaceholder": "Responder…",
-    "cmt.replySend": "Responder",
-    "cmt.replies": "{n} resposta(s)",
-    "pv.play": "Reproduzir",
-    "pv.pause": "Pausar",
-    "pv.frameBack": "Frame anterior",
-    "pv.frameFwd": "Próximo frame",
-    "pv.mute": "Mudo",
-    "pv.unmute": "Som",
-    "pv.fullscreen": "Tela cheia",
-    "pv.fps": "Quadros por segundo (para o timecode e o passo de frame)",
-    "pv.shortcuts": "Espaço/K: play · J/L: -/+ · ←/→: frame · ↑/↓: capítulo · M: mudo",
-    "pv.volume": "Volume",
-
-    "modal.cancel": "Cancelar",
-    "modal.ok": "OK",
-    "modal.confirmTitle": "Confirmar",
-    "modal.confirm": "Confirmar",
-    "modal.create": "Criar",
-
-    "proj.connected": "conectado no app",
-    "proj.deleteTitle": "apagar projeto",
-    "proj.new.title": "Novo projeto",
-    "proj.new.placeholder": "Nome do projeto",
-    "proj.created": "Projeto criado.",
-    "proj.delete.confirm": "Apagar o projeto \"{name}\"?\nOs arquivos de vídeo no disco NÃO são apagados.",
-    "proj.delete.btn": "Apagar",
-    "proj.deleted": "Projeto apagado.",
-    "proj.delete.fail": "Não foi possível apagar.",
-
-    "video.delete.confirm": "Excluir o vídeo \"{name}\"?\nIsso APAGA o arquivo do servidor. Não dá pra desfazer.",
-    "video.delete.btn": "Excluir",
-    "video.deleted": "Vídeo excluído.",
-    "video.delete.fail": "Não foi possível excluir.",
-
-    "dev.hint": "Cada aparelho com o app Fframe Uploader usa a própria chave. Revogar corta o acesso na hora (o histórico fica guardado).",
-    "dev.appLangNote": "",
-    "dev.add": "＋ Adicionar dispositivo",
-    "dev.createdAt": "criado em {date}",
-    "dev.revokedAt": " · revogado em {date}",
-    "dev.badge.active": "ativo",
-    "dev.badge.revoked": "revogado",
-    "dev.act.key": "chave",
-    "dev.act.revoke": "revogar",
-    "dev.new.title": "Novo dispositivo",
-    "dev.new.placeholder": "Nome (ex.: Celular do Ciro)",
-    "dev.created": "Dispositivo criado.",
-    "dev.create.fail": "Não foi possível criar.",
-    "dev.revoke.confirm": "Revogar o dispositivo \"{name}\"?\nO app com essa chave perde o acesso imediatamente.",
-    "dev.revoke.btn": "Revogar",
-    "dev.revoked": "Dispositivo revogado.",
-    "side.library": "📁 Biblioteca",
-    "title.library": "Biblioteca",
-    "count.folders": "{n} pasta(s) vinculada(s)",
-    "card.library": "biblioteca",
-    "card.remove": "remover",
-    "lib.hint": "Escolha pastas que já estão no NAS para aparecerem num projeto. Os vídeos ficam onde estão — o Fframe só indexa e reproduz, nunca copia nem apaga arquivos.",
-    "lib.linkedTitle": "Pastas vinculadas",
-    "lib.browseTitle": "Navegar no NAS",
-    "lib.noLinks": "Nenhuma pasta vinculada ainda. Navegue abaixo e clique em “adicionar”.",
-    "lib.root": "Biblioteca",
-    "lib.here": "{n} vídeo(s) diretamente nesta pasta",
-    "lib.noSubfolders": "Sem subpastas.",
-    "lib.unavailable": "Não foi possível abrir a biblioteca. Verifique se o share está montado no container.",
-    "lib.addThis": "＋ Adicionar esta pasta",
-    "lib.linked": "vinculada",
-    "lib.videos": "{n} vídeo(s)",
-    "lib.withSub": "com subpastas",
-    "lib.noSub": "sem subpastas",
-    "lib.scanned": "indexada {date}",
-    "lib.hiddenCount": "{n} removido(s)",
-    "lib.error": "Erro: {err}",
-    "lib.truncated": "Limite de 20.000 vídeos atingido; vincule subpastas menores.",
-    "lib.project": "Projeto",
-    "lib.act.add": "adicionar",
-    "lib.act.rescan": "reindexar",
-    "lib.act.unlink": "desvincular",
-    "lib.add.title": "Adicionar pasta ao Fframe",
-    "lib.add.newProject": "＋ Novo projeto “{name}”",
-    "lib.add.recursive": "Incluir subpastas",
-    "lib.add.note": "Os arquivos não são copiados. Use “reindexar” depois de colocar vídeos novos na pasta.",
-    "lib.scanning": "Indexando…",
-    "lib.added": "Pasta vinculada: {n} vídeo(s).",
-    "lib.rescanned": "Reindexada: {n} vídeo(s).",
-    "lib.unlink.confirm": "Desvincular {name}? Os vídeos e comentários saem do Fframe, mas os arquivos continuam no NAS.",
-    "lib.unlinked": "Pasta desvinculada.",
-    "lib.fail": "Não foi possível concluir.",
-    "lib.removeVideo.confirm": "Remover “{name}” do Fframe? O arquivo continua no NAS.",
-    "lib.removeVideo.done": "Vídeo removido do Fframe.",
-    "tr.title": "Transcrição",
-    "tr.search": "Buscar no texto…",
-    "tr.hits": "{n} resultado(s)",
-    "tr.noHits": "nada",
-    "tr.follow": "acompanhar",
-    "tr.follow.title": "Rolar junto com o vídeo",
-    "tr.menu": "Opções da transcrição",
-    "tr.empty": "Sem transcrição para este vídeo.",
-    "tr.emptyHint": "Envie um .srt, .vtt, .txt ou o .json do script do Resolve (que também traz os capítulos).",
-    "tr.upload": "Enviar transcrição",
-    "tr.replace": "Trocar arquivo",
-    "tr.remove": "Remover",
-    "tr.save": "Salvar",
-    "tr.remove.confirm": "Remover a transcrição deste vídeo?",
-    "tr.removed": "Transcrição removida.",
-    "tr.uploaded": "Transcrição carregada: {n} trecho(s).",
-    "tr.updated": "Transcrição ajustada.",
-    "tr.uploadFail": "Não foi possível carregar a transcrição.",
-    "tr.tooBig": "Arquivo grande demais (máx. 30 MB).",
-    "tr.commentSel": "Comentar trecho",
-    "tr.approxNote": "Este arquivo só tem tempo por frase; o tempo de cada palavra é aproximado. Use o script do Resolve (.json) para precisão por palavra.",
-    "tr.fps.title": "Frame rate do timecode",
-    "tr.fps.msg": "Qual o frame rate do projeto/timeline no Resolve? Ele converte os frames (HH:MM:SS:FF) em tempo.",
-    "tr.fps.label": "Frame rate",
-    "tr.offset.label": "Timecode do início do vídeo",
-    "tr.offset.hint": "Se o texto estiver adiantado ou atrasado, informe o timecode que corresponde ao início do clipe (ex.: 01:00:00:00).",
-    "tr.offset.bad": "Use o formato HH:MM:SS:FF.",
-    "tr.info": "{name} · {kind} · {src}",
-    "tr.fromLibrary": "da biblioteca (arquivo ao lado do vídeo)",
-    "tr.fromUpload": "enviada pelo painel",
-    "tr.import": "📝 Importar transcrições",
-    "tr.importing": "Importando transcrições…",
-    "tr.imported": "{n} transcrição(ões) importada(s).",
-    "tr.importDone": "Importação concluída",
-    "tr.importSummary": "{ok} casada(s) com vídeos, {bad} sem correspondência:",
-    "tr.noMatch": "nenhum vídeo com esse nome no projeto",
-    "tr.markersImported": "{n} marcador(es) do Resolve viraram comentários.",
-    "rv.back": "Voltar",
-    "rv.notFound": "Vídeo não encontrado.",
-    "ch.title": "Capítulos",
-    "ch.prev": "Capítulo anterior (↑)",
-    "ch.next": "Próximo capítulo (↓)",
-    "ch.empty": "Sem capítulos neste vídeo.",
-    "ch.emptyHint": "Os marcadores da timeline (ou do clipe) no Resolve viram capítulos ao rodar “Export to Fframe”.",
-    "ch.imported": "{n} capítulo(s) do Resolve.",
-    "cmt.guest": "convidado",
-    "cmt.resolvedTag": "✓ resolvido",
-    "share.btn": "🔗 Compartilhar",
-    "share.title": "Compartilhar “{name}”",
-    "share.enable": "Link de compartilhamento",
-    "share.enabledHint": "Quem tiver o link vê este projeto, sem login. Pedimos o nome para saber quem comentou.",
-    "share.disabledHint": "Desativado: o link não abre nada.",
-    "share.copy": "Copiar",
-    "share.copied": "Link copiado.",
-    "share.settings": "O que o cliente pode fazer",
-    "share.opt.comments": "Comentar",
-    "share.opt.commentsHint": "Deixar comentários e respostas. Eles chegam no Resolve como marcadores vermelhos.",
-    "share.opt.download": "Baixar os vídeos",
-    "share.opt.downloadHint": "Mostra o botão de download.",
-    "share.opt.transcript": "Ver transcrições",
-    "share.opt.transcriptHint": "Mostra a aba Transcrição quando houver.",
-    "share.regen": "Gerar novo link",
-    "share.regen.confirm": "Gerar um novo link? O link atual para de funcionar na hora.",
-    "share.regenerated": "Novo link gerado. Envie o novo link ao cliente.",
-    "share.done": "Pronto",
-    "share.fail": "Não foi possível salvar.",
-    "share.as": "Você: {name}",
-    "share.change": "trocar",
-    "share.name.title": "Qual é o seu nome?",
-    "share.name.msg": "Você foi convidado para revisar “{project}”. Seu nome aparece nos comentários que deixar.",
-    "share.name.ph": "Seu nome",
-    "share.name.ok": "Continuar",
-    "share.review": "revisão",
-    "share.empty": "Nenhum vídeo neste projeto ainda.",
-    "share.dead.title": "Link indisponível",
-    "share.dead.msg": "Este link de revisão foi desativado ou não existe. Peça um novo link a quem compartilhou.",
-    "edl.btn": "Resolve",
-    "edl.title": "Comentários → marcadores no Resolve",
-    "edl.msg": "Baixa um EDL com os comentários deste vídeo. No Resolve, com a timeline aberta: Timeline › Import › Timeline Markers from EDL.",
-    "edl.start": "Timecode inicial da timeline",
-    "edl.hint": "Use o mesmo frame rate e início da timeline que gerou este vídeo (o padrão do Resolve é 01:00:00:00). Abertos = vermelho, resolvidos = verde.",
-    "edl.download": "Baixar EDL",
-    "cmt.marker": "Marcador do Resolve ({color})",
-    "dev.revoke.fail": "Não foi possível revogar.",
-    "dev.key.hint": "Escaneie o QR no app Fframe Uploader, ou copie a chave e cole manualmente.",
-    "dev.key.copy": "Copiar chave",
-    "dev.key.close": "Fechar",
-    "dev.key.copied": "Chave copiada.",
-    "dev.key.copyFail": "Não deu pra copiar — a chave está selecionada.",
-  },
-
-  en: {
+const STRINGS = {
     _label: "English",
     _flag: "🇬🇧",
     _locale: "en-GB",
@@ -335,8 +82,37 @@ const LANGS = {
     "pv.unmute": "Unmute",
     "pv.fullscreen": "Fullscreen",
     "pv.fps": "Frames per second (for timecode and frame stepping)",
-    "pv.shortcuts": "Space/K: play · J/L: -/+ · ←/→: frame · ↑/↓: chapter · M: mute",
+    "pv.shortcuts": "Press ? for keyboard shortcuts",
     "pv.volume": "Volume",
+    "pv.exitFullscreen": "Exit full screen",
+    "dl.video": "Video",
+    "dl.transcript": "Transcript (.doc)",
+    "dl.transcriptSub": "Word document",
+    "keys.btn": "Shortcuts",
+    "keys.title": "Keyboard shortcuts",
+    "keys.play": "Play / pause",
+    "keys.jump": "Back / forward 5 seconds",
+    "keys.frame": "Previous / next frame",
+    "keys.chapter": "Previous / next chapter",
+    "keys.mute": "Mute / unmute",
+    "keys.fs": "Full screen (whole page)",
+    "keys.comment": "Write a comment at the current time",
+    "keys.send": "Send the comment",
+    "keys.search": "Next / previous match in transcript search",
+    "keys.esc": "Leave the text box",
+    "keys.help": "Show these shortcuts",
+    "set.btn": "⚙ Settings",
+    "set.title": "Settings for “{name}”",
+    "set.msg": "Turn off what this project doesn't use. It's hidden for you and for anyone you share the project with.",
+    "set.chapters": "Chapters",
+    "set.chaptersHint": "Markers sent from Resolve, shown as chapters on the player.",
+    "set.transcript": "Transcripts",
+    "set.transcriptHint": "The Transcript tab and transcript downloads.",
+    "share.opt.dlVideo": "Download videos",
+    "share.opt.dlVideoHint": "The client can download the video files.",
+    "share.opt.dlTranscript": "Download transcripts",
+    "share.opt.dlTranscriptHint": "The client can download transcripts as a Word document (.doc).",
+    "share.opt.dlTranscriptOff": "Transcripts are turned off for this project (⚙ Settings).",
 
     "modal.cancel": "Cancel",
     "modal.ok": "OK",
@@ -470,10 +246,6 @@ const LANGS = {
     "share.settings": "What the client can do",
     "share.opt.comments": "Comment",
     "share.opt.commentsHint": "Leave comments and replies. They come into Resolve as red markers.",
-    "share.opt.download": "Download videos",
-    "share.opt.downloadHint": "Shows the download button.",
-    "share.opt.transcript": "See transcripts",
-    "share.opt.transcriptHint": "Shows the Transcript tab when there is one.",
     "share.regen": "New link",
     "share.regen.confirm": "Make a new link? The current link stops working immediately.",
     "share.regenerated": "New link created. Send the new link to your client.",
@@ -501,81 +273,31 @@ const LANGS = {
     "dev.key.copy": "Copy key",
     "dev.key.close": "Close",
     "dev.key.copied": "Key copied.",
-    "dev.key.copyFail": "Couldn't copy — the key is selected instead.",
-  },
+    "dev.key.copyFail": "Couldn't copy — the key is selected instead."
 };
 
-const FALLBACK = "pt-BR";
-const STORAGE_KEY = "fframe.lang";
-
-// Escolhe o idioma: preferencia salva > idioma do navegador > pt-BR.
-function detectLang() {
-  let saved = null;
-  try { saved = localStorage.getItem(STORAGE_KEY); } catch { /* modo privado */ }
-  if (saved && LANGS[saved]) return saved;
-  const wanted = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || ""]);
-  for (const raw of wanted) {
-    const tag = String(raw);
-    if (LANGS[tag]) return tag;                                     // ex.: "pt-BR"
-    const base = tag.split("-")[0];
-    if (LANGS[base]) return base;                                   // ex.: "en-US" -> "en"
-    const match = Object.keys(LANGS).find((c) => c.split("-")[0] === base);
-    if (match) return match;                                        // ex.: "pt-PT" -> "pt-BR"
-  }
-  return FALLBACK;
-}
-
-let currentLang = detectLang();
-
-/** Traduz uma chave, aplicando os placeholders {nome} de `vars`. */
+/** Texto de uma chave, com os placeholders {nome} de `vars`. */
 function t(key, vars) {
-  const dict = LANGS[currentLang] || LANGS[FALLBACK];
-  let str = dict[key];
-  if (str === undefined) str = LANGS[FALLBACK][key];
+  let str = STRINGS[key];
   if (str === undefined) return key;
   if (!vars) return str;
   return str.replace(/\{(\w+)\}/g, (m, name) => (vars[name] !== undefined ? String(vars[name]) : m));
 }
 
-/** Aplica as traducoes nos elementos estaticos marcados no HTML. */
+/** Preenche os elementos estaticos marcados no HTML. */
 function applyStatic(root) {
   const scope = root || document;
   scope.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
   scope.querySelectorAll("[data-i18n-ph]").forEach((el) => { el.placeholder = t(el.dataset.i18nPh); });
   scope.querySelectorAll("[data-i18n-aria]").forEach((el) => { el.setAttribute("aria-label", t(el.dataset.i18nAria)); });
-  document.documentElement.lang = currentLang;
-}
-
-/** Monta os <select> de idioma (um por elemento .lang-select no HTML). */
-function mountSelectors() {
-  document.querySelectorAll(".lang-select").forEach((sel) => {
-    sel.innerHTML = Object.keys(LANGS)
-      .map((code) => `<option value="${code}">${LANGS[code]._flag} ${LANGS[code]._label}</option>`)
-      .join("");
-    sel.value = currentLang;
-    sel.setAttribute("aria-label", t("side.language"));
-    sel.addEventListener("change", () => I18n.set(sel.value));
-  });
 }
 
 const I18n = {
   t,
-  langs: LANGS,
-  get lang() { return currentLang; },
-  /** Locale para Intl/toLocaleString (datas e horas seguem o idioma escolhido). */
-  locale() { return (LANGS[currentLang] || LANGS[FALLBACK])._locale; },
-  /** Callback que o app.js define para redesenhar o conteudo dinamico. */
-  onChange: null,
-  set(code) {
-    if (!LANGS[code] || code === currentLang) return;
-    currentLang = code;
-    try { localStorage.setItem(STORAGE_KEY, code); } catch { /* modo privado */ }
-    document.querySelectorAll(".lang-select").forEach((s) => { s.value = code; s.setAttribute("aria-label", t("side.language")); });
-    applyStatic();
-    if (typeof I18n.onChange === "function") I18n.onChange();
-  },
+  /** Locale para datas e horas. */
+  locale() { return STRINGS._locale || "en-GB"; },
   applyStatic,
-  init() { mountSelectors(); applyStatic(); },
+  init() { document.documentElement.lang = "en"; applyStatic(); },
 };
 
 window.I18n = I18n;

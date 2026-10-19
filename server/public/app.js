@@ -57,6 +57,65 @@ function dialog({ title, message, input, placeholder, okText, danger }) {
     if (inp) inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); close(inp.value); } });
   });
 }
+// Menu suspenso (ex.: Download -> Video / Transcricao). items: [{ label, sub, href }]
+function openMenu(anchor, items) {
+  closeMenu();
+  const m = document.createElement("div");
+  m.className = "menu-pop"; m.id = "menu-pop"; m.setAttribute("role", "menu");
+  m.innerHTML = items.map((it, i) => `<a class="menu-item" role="menuitem" href="${escapeHtml(it.href)}" data-i="${i}" download>
+      <span class="menu-l">${escapeHtml(it.label)}</span>${it.sub ? `<span class="menu-s">${escapeHtml(it.sub)}</span>` : ""}</a>`).join("");
+  document.body.appendChild(m);
+  const r = anchor.getBoundingClientRect(), w = m.offsetWidth;
+  m.style.top = Math.min(window.innerHeight - m.offsetHeight - 8, r.bottom + 6) + "px";
+  m.style.left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)) + "px";
+  m.addEventListener("click", () => setTimeout(closeMenu, 0));
+  setTimeout(() => {
+    document.addEventListener("pointerdown", menuOutside, true);
+    document.addEventListener("keydown", menuEsc, true);
+  }, 0);
+  const first = m.querySelector("a"); if (first) first.focus();
+}
+const menuOutside = (e) => { const m = $("menu-pop"); if (m && !m.contains(e.target)) closeMenu(); };
+const menuEsc = (e) => { if (e.key === "Escape") { e.stopPropagation(); closeMenu(); } };
+function closeMenu() {
+  const m = $("menu-pop"); if (m) m.remove();
+  document.removeEventListener("pointerdown", menuOutside, true);
+  document.removeEventListener("keydown", menuEsc, true);
+}
+function startDownload(href) {
+  const a = document.createElement("a"); a.href = href; a.download = "";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+// Download de um card: um item so = baixa direto; dois = abre o menu.
+function downloadItems(a, urls) {
+  const items = [];
+  if (urls.video) items.push({ label: t("dl.video"), sub: a.name, href: urls.video });
+  if (urls.transcript && a.has_transcript) items.push({ label: t("dl.transcript"), sub: t("dl.transcriptSub"), href: urls.transcript });
+  return items;
+}
+function wireDownloads(root, list, urlsFor) {
+  root.querySelectorAll("[data-dl]").forEach((b) => b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const a = list.find((x) => x.id === b.dataset.dl);
+    const items = a ? downloadItems(a, urlsFor(a)) : [];
+    if (items.length === 1) startDownload(items[0].href); else if (items.length) openMenu(b, items);
+  }));
+}
+// Modal so de leitura (ex.: atalhos de teclado). `html` ja vem escapado.
+function infoModal(title, html) {
+  const back = $("modal");
+  back.innerHTML = `<div class="modal-card info-card"><h3>${escapeHtml(title)}</h3>${html}
+    <div class="modal-acts"><button class="btn-primary" data-act="ok" type="button">${escapeHtml(t("modal.ok"))}</button></div></div>`;
+  back.classList.add("show");
+  const close = () => { back.classList.remove("show"); setTimeout(() => (back.innerHTML = ""), 180); document.removeEventListener("keydown", onEsc, true); };
+  const onEsc = (e) => { if (e.key === "Escape" || e.key === "?") { e.preventDefault(); e.stopPropagation(); close(); } };
+  back.querySelector('[data-act="ok"]').addEventListener("click", close);
+  back.onclick = (e) => { if (e.target === back) close(); };
+  // so depois da tecla que abriu (senao o "?" que abriu ja fecharia)
+  setTimeout(() => document.addEventListener("keydown", onEsc, true), 0);
+  back.querySelector('[data-act="ok"]').focus();
+}
+
 const confirmModal = (message, okText, danger) =>
   dialog({ title: t("modal.confirmTitle"), message, okText: okText || t("modal.confirm"), danger });
 const promptModal = (title, placeholder) => dialog({ title, input: true, placeholder, okText: t("modal.create") });
@@ -64,7 +123,6 @@ const promptModal = (title, placeholder) => dialog({ title, input: true, placeho
 // ---- Autenticacao -----------------------------------------------------------
 async function init() {
   I18n.init();
-  I18n.onChange = () => { if (isSharePath() || reviewHandle) route(); else if ($("app").classList.contains("hidden")) showAuth(); else render(); };
   if (isSharePath()) return route();                 // link do cliente: sem login
   const st = await (await fetch("/_auth/status")).json();
   configured = st.configured;
@@ -104,7 +162,7 @@ async function submitAuth(ev) {
     const r = await fetch(setup ? "/_auth/setup" : "/_auth/login",
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user, password: pass, remember }) });
     const data = await r.json().catch(() => ({}));
-    if (!r.ok) { err.textContent = data.error === "credenciais invalidas" ? t("auth.err.invalid") : (data.error || t("auth.err.generic")); return; }
+    if (!r.ok) { err.textContent = data.error === "invalid credentials" ? t("auth.err.invalid") : (data.error || t("auth.err.generic")); return; }
     configured = true;
     $("auth-pass").value = ""; $("auth-pass2").value = "";
     showApp();
@@ -143,6 +201,7 @@ async function render() {
   $("nav-library").classList.toggle("active", current === LIBRARY_VIEW);
   $("tr-import").classList.add("hidden");
   $("share-btn").classList.add("hidden");
+  $("settings-btn").classList.add("hidden");
   if (current === DEVICES_VIEW) return renderDevices();
   if (current === LIBRARY_VIEW) return renderLibrary();
   const proj = projects.find((p) => p.id === current);
@@ -153,6 +212,7 @@ async function render() {
   const imp = $("tr-import");
   imp.classList.toggle("hidden", !proj || !assets.length);
   $("share-btn").classList.toggle("hidden", !proj);
+  $("settings-btn").classList.toggle("hidden", !proj);
   $("share-btn").classList.toggle("on", !!(proj && proj.shared));
   const content = $("content");
   if (!assets.length) {
@@ -165,6 +225,8 @@ async function render() {
     `<div class="date-h">${fmtDate(date)}</div><div class="grid">${byDate[date].map(cardHtml).join("")}</div>`).join("");
   content.querySelectorAll("[data-delv]").forEach((b) =>
     b.addEventListener("click", () => excluirVideo(b.dataset.delv, b.dataset.name, b.dataset.lib === "1")));
+  wireDownloads(content, assets, (a) => ({ video: `/_download/${a.id}`,
+    transcript: projectFeatures(a.project_id).transcript ? `/_api/assets/${a.id}/transcript.doc` : null }));
   content.querySelectorAll("[data-play]").forEach((b) =>
     b.addEventListener("click", () => navigate("/v/" + encodeURIComponent(b.dataset.play))));
 }
@@ -175,14 +237,14 @@ function cardHtml(a) {
       <video preload="metadata" muted playsinline src="/_media/${a.id}#t=0.5"></video>
       <span class="playbtn">▶</span>
       ${a.comment_count ? `<span class="cmt-badge">💬 ${a.comment_count}</span>` : ""}
-      ${a.has_transcript ? `<span class="tr-badge" title="${escapeHtml(t("tr.title"))}">📝</span>` : ""}
-      ${a.chapter_count ? `<span class="ch-badge" title="${escapeHtml(t("ch.title"))}">🔖 ${a.chapter_count}</span>` : ""}
+      ${a.has_transcript && projectFeatures(a.project_id).transcript ? `<span class="tr-badge" title="${escapeHtml(t("tr.title"))}">📝</span>` : ""}
+      ${a.chapter_count && projectFeatures(a.project_id).chapters ? `<span class="ch-badge" title="${escapeHtml(t("ch.title"))}">🔖 ${a.chapter_count}</span>` : ""}
     </button>
     <div class="meta">
       <div class="nm" title="${escapeHtml(lib ? "/" + (a.library_folder ? a.library_folder + "/" : "") + a.name : a.name)}">${escapeHtml(a.name)}</div>
       <div class="row"><span>${fmtSize(a.filesize)} · ${fmtTime(a.uploaded_at)}</span>
         <span class="acts">
-          <a class="act" href="/_download/${a.id}">${escapeHtml(t("card.download"))}</a>
+          <button class="act" type="button" data-dl="${a.id}">${escapeHtml(t("card.download"))}${a.has_transcript && projectFeatures(a.project_id).transcript ? " ▾" : ""}</button>
           <button class="act danger" type="button" data-delv="${a.id}" data-lib="${lib ? 1 : 0}" data-name="${escapeHtml(a.name)}">${escapeHtml(lib ? t("card.remove") : t("card.delete"))}</button>
         </span></div>
     </div></div>`;
@@ -206,6 +268,12 @@ function fmtTC(s, fps) {
 }
 // Autor "device:Celular do Ciro" -> "Celular do Ciro".
 const authorLabel = (a) => (a ? String(a).replace(/^device:/, "") : "—");
+
+// Recursos do projeto (capitulos / transcricao) — padrao: ligados.
+const projectFeatures = (id) => {
+  const p = projects.find((x) => x.id === id);
+  return { chapters: true, transcript: true, ...((p && p.settings) || {}) };
+};
 
 // =============================================================================
 // ROTAS: "/" painel, "/v/<id>" pagina de revisao do admin,
@@ -238,6 +306,7 @@ async function openAdminReview(id) {
   closeReview();
   let a = null;
   try { a = (await (await api("GET", "/_api/assets")).json()).find((x) => x.id === id); } catch {}
+  if (!projects.length) { try { projects = await (await api("GET", "/_api/projects")).json(); } catch {} }
   if (!a) { toast(t("rv.notFound"), "err"); return navigate("/", true); }
   if (a.project_id) current = a.project_id;           // Voltar cai no projeto do video
   $("app").classList.add("hidden");
@@ -248,8 +317,9 @@ async function openAdminReview(id) {
   reviewHandle = Review.open(box, {
     id, name: a.name, admin: true, call: api,
     urls: { media: `/_media/${id}`, download: `/_download/${id}`, comments: `${base}/comments`,
-      chapters: `${base}/chapters`, transcript: `${base}/transcript`, edl: `${base}/markers.edl` },
-    canComment: true, showTranscript: true,
+      chapters: `${base}/chapters`, transcript: `${base}/transcript`, transcriptDoc: `${base}/transcript.doc`, edl: `${base}/markers.edl` },
+    features: projectFeatures(a.project_id),
+    canComment: true,
     backLabel: a.project_name || t("title.allVideos"),
     onBack: () => { document.title = "Fframe"; if (history.state && history.state.app) history.back(); else navigate("/"); },
   });
@@ -399,7 +469,7 @@ async function importarTranscricoes(files) {
   else await dialog({
     title: t("tr.importDone"),
     message: okMsg + "\n" + t("tr.importSummary", { ok: ok.length, bad: bad.length }) + "\n\n" +
-      bad.map((x) => `• ${x.filename}: ${x.error === "nenhum video com esse nome" ? t("tr.noMatch") : x.error}`).join("\n"),
+      bad.map((x) => `• ${x.filename}: ${x.error === "no video with that name" ? t("tr.noMatch") : x.error}`).join("\n"),
     okText: t("modal.ok"),
   });
   render();
@@ -642,6 +712,32 @@ function keyModal(d) {
 // =============================================================================
 // COMPARTILHAR (admin): link sem login por projeto + opcoes do link.
 // =============================================================================
+// Configuracoes do projeto (admin): recursos que o projeto usa.
+function settingsModal() {
+  const proj = projects.find((p) => p.id === current);
+  if (!proj) return;
+  const back = $("modal");
+  const st = projectFeatures(proj.id);
+  const opt = (k, label, hint) => `<label class="check share-opt"><input type="checkbox" data-k="${k}"${st[k] ? " checked" : ""} />
+      <span><b>${escapeHtml(label)}</b><small>${escapeHtml(hint)}</small></span></label>`;
+  back.innerHTML = `<div class="modal-card share-card">
+    <h3>${escapeHtml(t("set.title", { name: proj.name }))}</h3>
+    <p class="modal-msg">${escapeHtml(t("set.msg"))}</p>
+    ${opt("chapters", t("set.chapters"), t("set.chaptersHint"))}
+    ${opt("transcript", t("set.transcript"), t("set.transcriptHint"))}
+    <div class="modal-acts"><button class="btn-primary" type="button" data-act="ok">${escapeHtml(t("share.done"))}</button></div></div>`;
+  back.classList.add("show");
+  back.querySelectorAll("[data-k]").forEach((c) => c.addEventListener("change", async () => {
+    const r = await api("PATCH", `/_api/projects/${proj.id}/settings`, { [c.dataset.k]: c.checked });
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !d) { toast(t("share.fail"), "err"); c.checked = !c.checked; return; }
+    proj.settings = d;
+  }));
+  const close = () => { back.classList.remove("show"); setTimeout(() => (back.innerHTML = ""), 180); render(); };
+  back.querySelector('[data-act="ok"]').addEventListener("click", close);
+  back.onclick = (e) => { if (e.target === back) close(); };
+}
+
 async function shareModal() {
   const proj = projects.find((p) => p.id === current);
   if (!proj) return;
@@ -663,8 +759,8 @@ async function shareModal() {
       </div>
       <div class="side-h share-h">${escapeHtml(t("share.settings"))}</div>
       ${opt("allow_comments", t("share.opt.comments"), t("share.opt.commentsHint"))}
-      ${opt("allow_download", t("share.opt.download"), t("share.opt.downloadHint"))}
-      ${opt("show_transcript", t("share.opt.transcript"), t("share.opt.transcriptHint"))}
+      ${opt("allow_download_video", t("share.opt.dlVideo"), t("share.opt.dlVideoHint"))}
+      ${opt("allow_download_transcript", t("share.opt.dlTranscript"), projectFeatures(proj.id).transcript ? t("share.opt.dlTranscriptHint") : t("share.opt.dlTranscriptOff"))}
       <div class="modal-acts">
         <button class="btn-ghost danger-txt" type="button" id="sh-regen">${escapeHtml(t("share.regen"))}</button>
         <button class="btn-primary" type="button" data-act="ok">${escapeHtml(t("share.done"))}</button>
@@ -772,23 +868,21 @@ const Share = {
     if (assetId) return Share.openVideo(assetId);
     Share.gallery();
   },
+  dlUrls(a) {
+    const tk = encodeURIComponent(Share.token);
+    return { video: Share.info.allow_download_video ? `/_s/${tk}/download/${a.id}` : null,
+      transcript: Share.info.allow_download_transcript ? `/_s/${tk}/transcript/${a.id}` : null };
+  },
   header() {
     return `<header class="share-top">
       <div class="brand"><span class="dot"></span><div><b>Fframe</b><span>${escapeHtml(t("share.review"))}</span></div></div>
       <div class="share-proj">${escapeHtml(Share.info.project)}</div>
-      <div class="share-me">${escapeHtml(t("share.as", { name: Share.guestName() }))} · <button class="linkbtn" type="button" id="sh-rename">${escapeHtml(t("share.change"))}</button>
-        <select class="lang-select" id="share-lang"></select></div>
+      <div class="share-me">${escapeHtml(t("share.as", { name: Share.guestName() }))} · <button class="linkbtn" type="button" id="sh-rename">${escapeHtml(t("share.change"))}</button></div>
     </header>`;
   },
   wireHeader(box) {
     const rn = box.querySelector("#sh-rename");
     if (rn) rn.addEventListener("click", async () => { await Share.askName(true); route(); });
-    const sel = box.querySelector("#share-lang");
-    if (sel) {
-      sel.innerHTML = Object.keys(I18n.langs).map((c) => `<option value="${c}">${I18n.langs[c]._flag} ${I18n.langs[c]._label}</option>`).join("");
-      sel.value = I18n.lang;
-      sel.addEventListener("change", () => I18n.set(sel.value));
-    }
   },
   gallery() {
     document.title = Share.info.project + " · Fframe";
@@ -806,7 +900,7 @@ const Share = {
         <div class="meta">
           <div class="nm" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</div>
           <div class="row"><span>${fmtSize(a.filesize)} · ${fmtDay(a.uploaded_at)}</span>
-            ${Share.info.allow_download ? `<span class="acts"><a class="act" href="/_s/${tk}/download/${a.id}">${escapeHtml(t("card.download"))}</a></span>` : ""}
+            ${Share.dlUrls(a).video || (Share.dlUrls(a).transcript && a.has_transcript) ? `<span class="acts"><button class="act" type="button" data-dl="${a.id}">${escapeHtml(t("card.download"))}${Share.dlUrls(a).video && Share.dlUrls(a).transcript && a.has_transcript ? " ▾" : ""}</button></span>` : ""}
           </div>
         </div></div>`).join("");
     box.innerHTML = Share.header() + `<main class="share-main">
@@ -814,6 +908,7 @@ const Share = {
         ${list.length ? `<div class="grid">${cards}</div>` : `<div class="empty"><div class="big">🎬</div>${escapeHtml(t("share.empty"))}</div>`}
       </main>`;
     Share.wireHeader(box);
+    wireDownloads(box, list, (a) => Share.dlUrls(a));
     box.querySelectorAll("[data-open]").forEach((b) => b.addEventListener("click", () =>
       navigate(`/s/${tk}/v/${encodeURIComponent(b.dataset.open)}`)));
   },
@@ -828,9 +923,10 @@ const Share = {
     const base = `/_s/${tk}/assets/${encodeURIComponent(assetId)}`;
     reviewHandle = Review.open(box, {
       id: assetId, name: a.name, admin: false, call: Share.call,
-      urls: { media: `/_s/${tk}/media/${assetId}`, download: Share.info.allow_download ? `/_s/${tk}/download/${assetId}` : null,
+      urls: { media: `/_s/${tk}/media/${assetId}`, download: Share.dlUrls(a).video, transcriptDoc: Share.dlUrls(a).transcript,
         comments: `${base}/comments`, chapters: `${base}/chapters`, transcript: `${base}/transcript`, edl: null },
-      canComment: !!Share.info.allow_comments, showTranscript: !!Share.info.show_transcript,
+      features: { chapters: !!Share.info.chapters, transcript: !!Share.info.transcript },
+      canComment: !!Share.info.allow_comments,
       guest: { name: Share.guestName() },
       backLabel: Share.info.project,
       onBack: () => { Share.assets = null; if (history.state && history.state.app) history.back(); else navigate(`/s/${tk}`); },
@@ -851,6 +947,7 @@ $("nav-devices").addEventListener("click", () => { current = DEVICES_VIEW; close
 $("nav-library").addEventListener("click", () => { current = LIBRARY_VIEW; closeDrawer(); render(); });
 $("tr-import").addEventListener("click", () => $("tr-import-file").click());
 $("share-btn").addEventListener("click", shareModal);
+$("settings-btn").addEventListener("click", settingsModal);
 $("tr-import-file").addEventListener("change", (e) => { const fs = e.target.files; importarTranscricoes(fs).finally(() => { e.target.value = ""; }); });
 $("menu").addEventListener("click", openDrawer);
 $("scrim").addEventListener("click", closeDrawer);

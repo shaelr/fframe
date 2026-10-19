@@ -10,7 +10,9 @@
 // Review.open(root, ctx) -> { close() }
 //   ctx = { id, name, admin, call(method, url, body) -> Response,
 //           urls: { media, download, comments, chapters, transcript, edl },
-//           canComment, showTranscript, guest: { name } | null,
+//           urls.transcriptDoc (download .doc, or null),
+//           features: { chapters, transcript }   (recursos do projeto),
+//           canComment, guest: { name } | null,
 //           backLabel, onBack(), onGuestRename() }
 // Usa os utilitarios globais do app.js (t, escapeHtml, toast, confirmModal,
 // fmtClock, fmtTC, fpsModal, trMenuModal, edlModal).
@@ -26,6 +28,8 @@ const ICONS = {
   volLow: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9a4.2 4.2 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
   fs: '<path d="M4.5 9V4.5H9M15 4.5h4.5V9M19.5 15v4.5H15M9 19.5H4.5V15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  fsExit: '<path d="M9 4.5V9H4.5M19.5 9H15V4.5M15 19.5V15h4.5M4.5 15H9v4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  keys: '<rect x="3" y="6.5" width="18" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M6.5 10h1M9.5 10h1M12.5 10h1M15.5 10h1M8 14h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
 };
 // Cores dos marcadores do Resolve (o app.css define .mk-<Cor>; a CSP nao deixa style="" inline)
 const MK_COLORS = ["Blue", "Cyan", "Green", "Yellow", "Red", "Pink", "Purple", "Fuchsia", "Rose",
@@ -37,7 +41,9 @@ const Review = {
     const { id, name, admin, urls } = ctx;
     const call = ctx.call;
     const canComment = !!ctx.canComment;
-    const showTr = !!ctx.showTranscript;
+    const features = ctx.features || { chapters: true, transcript: true };
+    const showTr = !!features.transcript;
+    const showCh = !!features.chapters;
 
     root.innerHTML =
       `<div class="rv">
@@ -45,7 +51,8 @@ const Review = {
           <button class="rv-back" type="button" id="rv-back">← <span>${escapeHtml(ctx.backLabel || t("rv.back"))}</span></button>
           <div class="rv-title" title="${escapeHtml(name)}">${escapeHtml(name)}</div>
           <div class="rv-acts">
-            ${urls.download ? `<a class="rv-act" id="rv-dl" href="${escapeHtml(urls.download)}">⤓ ${escapeHtml(t("card.download"))}</a>` : ""}
+            <button class="rv-act" type="button" id="rv-dl" hidden>⤓ ${escapeHtml(t("card.download"))}</button>
+            <button class="rv-act rv-keys" type="button" id="rv-keys" title="${escapeHtml(t("keys.title"))} (?)">${icon("keys")}<span>${escapeHtml(t("keys.btn"))}</span></button>
             ${admin && urls.edl ? `<button class="rv-act" type="button" id="pv-edl" title="${escapeHtml(t("edl.title"))}">⤓ ${escapeHtml(t("edl.btn"))}</button>` : ""}
           </div>
         </header>
@@ -231,9 +238,9 @@ const Review = {
     }
     function renderChapters() {
       const tab = q('.side-tab[data-tab="ch"]');
-      tab.hidden = !chapters.length && !admin;
+      tab.hidden = !showCh || (!chapters.length && !admin);
       el("ch-n").textContent = chapters.length;
-      el("pv-cprev").hidden = el("pv-cnext").hidden = !chapters.length;
+      el("pv-cprev").hidden = el("pv-cnext").hidden = !showCh || !chapters.length;
       const list = el("ch-list");
       list.innerHTML = chapters.length
         ? chapters.map((c, i) => `<button class="ch-item${i === curChap ? " now" : ""}" type="button" data-i="${i}">
@@ -259,6 +266,7 @@ const Review = {
       });
     }
     async function loadChapters() {
+      if (!showCh) { chapters = []; if (alive) renderChapters(); return; }
       try { const r = await call("GET", urls.chapters); chapters = r.ok ? await r.json() : []; } catch { chapters = []; }
       chapters.sort((a, b) => a.t - b.t);
       if (alive) renderChapters();
@@ -427,6 +435,7 @@ const Review = {
     const trBody = el("tr-body");
     function renderTranscript() {
       flat = []; curWord = -1; hits = []; hitIdx = -1; el("tr-hits").textContent = "";
+      updateDownload();
       el("tr-dot").hidden = !tr;
       q('.side-tab[data-tab="tr"]').hidden = !showTr || (!tr && !admin);
       if (!tr) {
@@ -598,9 +607,9 @@ const Review = {
       });
     }
     async function loadTranscript() {
-      if (!showTr) { tr = null; renderTranscript(); return; }
+      if (!showTr) { tr = null; renderTranscript(); updateDownload(); return; }  // projeto sem transcricao
       try { const r = await call("GET", urls.transcript); tr = r.ok ? await r.json() : null; } catch { tr = null; }
-      if (alive) renderTranscript();
+      if (alive) { renderTranscript(); updateDownload(); }
     }
 
     // ---- Ligacoes ---------------------------------------------------------------
@@ -612,7 +621,52 @@ const Review = {
     el("pv-ff").addEventListener("click", () => frameStep(1));
     el("pv-cprev").addEventListener("click", () => goChapter(-1));
     el("pv-cnext").addEventListener("click", () => goChapter(1));
-    el("pv-fs").addEventListener("click", () => { if (document.fullscreenElement) document.exitFullscreen(); else el("pv").requestFullscreen && el("pv").requestFullscreen(); });
+    // Tela cheia = a PAGINA inteira (video + capitulos + comentarios), nao so o video.
+    // iPhone nao deixa paginas em tela cheia: la cai para a tela cheia do video.
+    const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+    function toggleFullscreen() {
+      if (fsEl()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+      const de = document.documentElement;
+      const req = de.requestFullscreen || de.webkitRequestFullscreen;
+      if (req) Promise.resolve(req.call(de)).catch(() => {});
+      else if (video.webkitEnterFullscreen) video.webkitEnterFullscreen();
+    }
+    const onFsChange = () => {
+      const on = !!fsEl();
+      el("pv-fs").innerHTML = icon(on ? "fsExit" : "fs");
+      el("pv-fs").title = on ? t("pv.exitFullscreen") : t("pv.fullscreen");
+      document.documentElement.classList.toggle("is-fs", on);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    el("pv-fs").addEventListener("click", toggleFullscreen);
+
+    // Download: video e/ou transcricao (.doc), conforme o que estiver liberado.
+    function updateDownload() {
+      const items = [];
+      if (urls.download) items.push({ label: t("dl.video"), sub: name, href: urls.download });
+      if (urls.transcriptDoc && tr) items.push({ label: t("dl.transcript"), sub: t("dl.transcriptSub"), href: urls.transcriptDoc });
+      const b = el("rv-dl");
+      b.hidden = !items.length;
+      b.textContent = `⤓ ${t("card.download")}${items.length > 1 ? " ▾" : ""}`;
+      b.onclick = () => (items.length === 1 ? startDownload(items[0].href) : openMenu(b, items));
+    }
+
+    // Atalhos de teclado (botao ⌨ ou tecla "?").
+    function showShortcuts() {
+      const rows = [
+        ["Space / K", t("keys.play")], ["J / L", t("keys.jump")], ["← / →", t("keys.frame")],
+        showCh && chapters.length ? ["↑ / ↓", t("keys.chapter")] : null,
+        ["M", t("keys.mute")], ["F", t("keys.fs")],
+        canComment ? ["C", t("keys.comment")] : null,
+        canComment ? ["⌘ / Ctrl + Enter", t("keys.send")] : null,
+        showTr && tr ? ["Enter / Shift + Enter", t("keys.search")] : null,
+        ["Esc", t("keys.esc")], ["?", t("keys.help")],
+      ].filter(Boolean);
+      infoModal(t("keys.title"), `<div class="keys">${rows.map(([k, d]) =>
+        `<div class="key-row"><span class="key-k">${k.split(" / ").map((x) => x.split(" + ").map((y) => `<kbd>${escapeHtml(y)}</kbd>`).join("+")).join(" ")}</span><span class="key-d">${escapeHtml(d)}</span></div>`).join("")}</div>`);
+    }
+    el("rv-keys").addEventListener("click", showShortcuts);
     video.addEventListener("loadedmetadata", () => { duration = video.duration || 0; updateTC(); updateScrub(); renderPins(); renderChapterTicks(); updateChip(); });
     video.addEventListener("timeupdate", () => {
       updateTC(); updateScrub(); syncWord(false); syncChapter(false);
@@ -636,6 +690,7 @@ const Review = {
         updateChip();
       });
       el("cmt-compose").addEventListener("submit", submit);
+      textEl().addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); el("cmt-compose").requestSubmit(); } });
       const rn = el("cmt-rename");
       if (rn) rn.addEventListener("click", () => ctx.onGuestRename && ctx.onGuestRename());
     }
@@ -656,7 +711,9 @@ const Review = {
         case "ArrowUp": e.preventDefault(); goChapter(-1); break;      // como os marcadores no Resolve
         case "ArrowDown": e.preventDefault(); goChapter(1); break;
         case "m": case "M": el("pv-mute").click(); break;
-        case "f": case "F": el("pv-fs").click(); break;
+        case "f": case "F": toggleFullscreen(); break;
+        case "c": case "C": if (canComment) { e.preventDefault(); setTab("cmt"); textEl().focus(); } break;
+        case "?": e.preventDefault(); showShortcuts(); break;
       }
     };
     document.addEventListener("keydown", onKey);
@@ -674,7 +731,10 @@ const Review = {
       close() {
         alive = false;
         try { video.pause(); video.removeAttribute("src"); video.load(); } catch {}
-        if (document.fullscreenElement) { try { document.exitFullscreen(); } catch {} }
+        if (fsEl()) { try { (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch {} }
+        document.removeEventListener("fullscreenchange", onFsChange);
+        document.removeEventListener("webkitfullscreenchange", onFsChange);
+        document.documentElement.classList.remove("is-fs");
         document.removeEventListener("keydown", onKey);
         document.removeEventListener("selectionchange", onSelChange);
         document.removeEventListener("pointerdown", closeVol);

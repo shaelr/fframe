@@ -78,9 +78,32 @@ function deleteProject(id) {
   return false;
 }
 
+// ---- Recursos do projeto (admin e cliente) -----------------------------------
+// project.settings = { chapters, transcript }: projeto que nao usa capitulos ou
+// transcricao esconde essas abas para todo mundo.
+const SETTINGS_DEFAULTS = { chapters: true, transcript: true };
+const getSettings = (projectId) => {
+  const p = getProject(projectId);
+  return p ? { ...SETTINGS_DEFAULTS, ...(p.settings || {}) } : { ...SETTINGS_DEFAULTS };
+};
+function updateSettings(projectId, patch) {
+  const p = getProject(projectId);
+  if (!p) return null;
+  p.settings = getSettings(projectId);
+  for (const k of Object.keys(SETTINGS_DEFAULTS)) if (k in patch) p.settings[k] = !!patch[k];
+  persistProjects();
+  return p.settings;
+}
+
 // ---- Compartilhamento por link (sem login) -----------------------------------
-// project.share = { token, enabled, allow_download, allow_comments, show_transcript }
-const SHARE_DEFAULTS = { enabled: false, allow_download: false, allow_comments: true, show_transcript: true };
+// project.share = { token, enabled, allow_comments, allow_download_video, allow_download_transcript }
+const SHARE_DEFAULTS = { enabled: false, allow_comments: true, allow_download_video: false, allow_download_transcript: false };
+const SHARE_KEYS = ["enabled", "allow_comments", "allow_download_video", "allow_download_transcript"];
+// Versao anterior: um "allow_download" so e "show_transcript" (agora e do projeto).
+for (const p of projects) {
+  if (p.share && "allow_download" in p.share) { p.share.allow_download_video = !!p.share.allow_download; delete p.share.allow_download; }
+  if (p.share && "show_transcript" in p.share) delete p.share.show_transcript;
+}
 function getShare(projectId) {
   const p = getProject(projectId);
   if (!p) return null;
@@ -88,12 +111,13 @@ function getShare(projectId) {
     p.share = { ...SHARE_DEFAULTS, ...(p.share || {}), token: crypto.randomBytes(24).toString("base64url"), created_at: new Date().toISOString() };
     persistProjects();
   }
+  for (const k of SHARE_KEYS) if (!(k in p.share)) p.share[k] = SHARE_DEFAULTS[k];
   return p.share;
 }
 function updateShare(projectId, patch) {
   const sh = getShare(projectId);
   if (!sh) return null;
-  for (const k of ["enabled", "allow_download", "allow_comments", "show_transcript"]) if (k in patch) sh[k] = !!patch[k];
+  for (const k of SHARE_KEYS) if (k in patch) sh[k] = !!patch[k];
   if (patch.regenerate) { sh.token = crypto.randomBytes(24).toString("base64url"); sh.created_at = new Date().toISOString(); }
   persistProjects();
   return sh;
@@ -445,7 +469,7 @@ module.exports = {
   getDeviceKey, ingestAsset,
   listDevices, createDevice, revokeDevice, findDeviceByKey,
   listProjects, getProject, getProjectByRoot, createProject, deleteProject,
-  getShare, updateShare, getProjectByShareToken,
+  getShare, updateShare, getProjectByShareToken, getSettings, updateSettings,
   setConnectedProject, getConnectedProject,
   issueAuthCode, redeemAuthCode, issueToken,
   createAsset, getAsset, markPartReceived, partPath, finalPathFor, markUploaded,

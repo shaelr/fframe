@@ -172,12 +172,12 @@ function parse(content, { filename, fps }) {
   else if (/^WEBVTT/.test(trimmed)) r = parseCues(text, base, "vtt");
   else if (/-->/.test(text)) r = parseCues(text, base, "srt");
   else r = parseTxt(text, base);
-  if (!r) return { error: "formato nao reconhecido" };
+  if (!r) return { error: "unrecognized file format" };
   const segments = cleanSegments(r.segments);
   // null = o arquivo nao fala de marcadores (nao mexe nos capitulos);
   // [] = exportado do Resolve sem marcadores (apaga os capitulos antigos).
   const markers = r.hasMarkers ? r.markers : null;
-  if (!segments.length && !(markers && markers.length) && !r.hasMarkers) return { error: "nenhum trecho com tempo encontrado" };
+  if (!segments.length && !(markers && markers.length) && !r.hasMarkers) return { error: "no timed lines found in the file" };
   // Arquivos com timecode de fonte (ex.: 01:00:00:00): tira as horas cheias.
   const min = segments.length ? segments[0].t : 0;
   const offset = min >= 3600 ? Math.floor(min / 3600) * 3600 : 0;
@@ -251,4 +251,59 @@ function matchKey(name) {
   return n.replace(/[\s_-]+/g, " ").trim();
 }
 
-module.exports = { parse, apply, load, has, save, remove, update, forPlayer, matchKey, FPS_OK };
+// ---- Exportar como documento do Word (.doc) -----------------------------------
+// HTML no formato que o Word abre como documento nativo (.doc): titulo,
+// detalhes, capitulos como secoes e cada fala com timecode e quem falou.
+const esc = (x) => String(x == null ? "" : x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const hms = (sec) => {
+  sec = Math.max(0, Math.floor(Number(sec) || 0));
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(Math.floor(sec / 3600))}:${p(Math.floor(sec / 60) % 60)}:${p(sec % 60)}`;
+};
+function toWordDoc({ title, project, tr, chapters }) {
+  const chs = (chapters || []).slice().sort((a, b) => a.t - b.t);
+  const parts = [];
+  let ci = 0, lastSpeaker = null;
+  const words = tr.segments.reduce((n, sg) => n + sg.words.length, 0);
+  const end = tr.segments.length ? tr.segments[tr.segments.length - 1].end : 0;
+  for (const sg of tr.segments) {
+    while (ci < chs.length && chs[ci].t <= sg.t + 0.01) {
+      parts.push(`<h2>${esc(chs[ci].title)} <span class="tc">${hms(chs[ci].t)}</span></h2>`);
+      if (chs[ci].note) parts.push(`<p class="note">${esc(chs[ci].note)}</p>`);
+      ci++; lastSpeaker = null;
+    }
+    const spk = sg.speaker && sg.speaker !== lastSpeaker ? `<span class="spk">${esc(sg.speaker)}</span><br>` : "";
+    if (sg.speaker) lastSpeaker = sg.speaker;
+    parts.push(`<p class="seg">${spk}<span class="tc">[${hms(sg.t)}]</span>&nbsp; ${esc(sg.text)}</p>`);
+  }
+  const date = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  return `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><title>${esc(title)} - Transcript</title>
+<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom><w:DoNotOptimizeForBrowser/></w:WordDocument></xml><![endif]-->
+<style>
+@page Section1 { size: 8.5in 11.0in; margin: 1in 1in 1in 1in; mso-header-margin: .5in; mso-footer-margin: .5in; }
+div.Section1 { page: Section1; }
+body { font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #1F1F24; }
+h1 { font-family: Calibri, Arial, sans-serif; font-size: 22pt; font-weight: bold; color: #0A0A0B; margin: 0 0 4pt 0; }
+p.meta { font-size: 9.5pt; color: #6B6B76; margin: 0 0 2pt 0; }
+p.rule { border-bottom: 1.5pt solid #1A4DFF; margin: 10pt 0 16pt 0; font-size: 2pt; }
+h2 { font-family: Calibri, Arial, sans-serif; font-size: 13.5pt; font-weight: bold; color: #1A4DFF; margin: 18pt 0 6pt 0;
+     border-bottom: .75pt solid #D9D9E0; padding-bottom: 3pt; page-break-after: avoid; }
+h2 span.tc { font-size: 9pt; font-weight: normal; }
+p.note { font-style: italic; color: #6B6B76; margin: 0 0 8pt 0; }
+p.seg { margin: 0 0 9pt 0; line-height: 140%; }
+span.tc { font-family: Consolas, "Courier New", monospace; font-size: 9pt; color: #8A8A96; }
+span.spk { font-weight: bold; font-size: 10pt; color: #0A0A0B; }
+p.foot { font-size: 8.5pt; color: #9A9AA6; margin-top: 24pt; }
+</style></head>
+<body><div class="Section1">
+<h1>${esc(title)}</h1>
+${project ? `<p class="meta"><b>Project:</b> ${esc(project)}</p>` : ""}
+<p class="meta"><b>Length:</b> ${hms(end)} &nbsp;·&nbsp; <b>Words:</b> ${words.toLocaleString("en-GB")}${chs.length ? ` &nbsp;·&nbsp; <b>Chapters:</b> ${chs.length}` : ""} &nbsp;·&nbsp; <b>Exported:</b> ${esc(date)}</p>
+<p class="rule">&nbsp;</p>
+${parts.join("\n")}
+<p class="foot">Transcript exported from Fframe. Timecodes are hours:minutes:seconds from the start of the video.</p>
+</div></body></html>`;
+}
+
+module.exports = { toWordDoc, parse, apply, load, has, save, remove, update, forPlayer, matchKey, FPS_OK };
