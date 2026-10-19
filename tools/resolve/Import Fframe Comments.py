@@ -35,6 +35,30 @@ DEFAULTS = {"url": "", "key": "", "open_color": "Red", "resolved_color": "Green"
 TAG = "fframe:"
 
 
+# ---- HTTPS ------------------------------------------------------------------
+# python.org Python on macOS ships without trusted CA certificates (until its
+# "Install Certificates.command" is run), so verification fails even for valid
+# certificates. Fall back to certifi or the system bundle. Cloudflare also
+# blocks Python's default user agent, so send our own.
+USER_AGENT = "Fframe-Resolve/1.0 (DaVinci Resolve script)"
+
+
+def ssl_context():
+    import ssl
+    paths = ssl.get_default_verify_paths()
+    if (paths.cafile and os.path.exists(paths.cafile)) or (paths.openssl_cafile and os.path.exists(paths.openssl_cafile)):
+        return ssl.create_default_context()
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        pass
+    for f in ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt"):
+        if os.path.exists(f):
+            return ssl.create_default_context(cafile=f)
+    return ssl.create_default_context()
+
+
 # ---- Resolve / UI -----------------------------------------------------------
 def get_resolve():
     g = globals()
@@ -106,8 +130,8 @@ def load_config(resolve):
 
 def fetch_comments(cfg):
     req = urllib.request.Request(cfg["url"].rstrip("/") + "/_api/resolve/comments",
-                                 headers={"X-Device-Key": cfg["key"]})
-    with urllib.request.urlopen(req, timeout=30) as r:
+                                 headers={"X-Device-Key": cfg["key"], "User-Agent": USER_AGENT})
+    with urllib.request.urlopen(req, timeout=30, context=ssl_context()) as r:
         return json.loads(r.read().decode("utf-8"))
 
 
