@@ -22,6 +22,7 @@ const store = require("./lib/store");
 const library = require("./lib/library");
 const transcript = require("./lib/transcript");
 const notify = require("./lib/notify");
+const branding = require("./lib/branding");
 const push = require("./lib/push");
 
 const PORT = process.env.PORT || 3000;
@@ -123,6 +124,7 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   if (req.method === "PUT" && req.path.startsWith("/_upload/")) return next();
   if (req.method === "POST" && req.path === "/_ingest") return next(); // video binario do app
+  if (req.method === "PUT" && /^\/_api\/branding\/(logo|favicon)$/.test(req.path)) return next(); // imagem da marca
   const ct = (req.headers["content-type"] || "").toLowerCase();
   if (ct.includes("urlencoded")) {
     return express.urlencoded({ extended: true })(req, res, next);
@@ -400,14 +402,40 @@ app.get("/api/health", (req, res) => res.json({ ok: true, service: "fframe-serve
 
 // ---- Tela / arquivos estaticos (SEM segredos: so HTML/CSS/JS publicos) -------
 const SHELL_HTML = path.join(__dirname, "public", "dashboard.html");
-app.get("/", (req, res) => res.sendFile(SHELL_HTML));
+// A pagina sai com a marca aplicada (titulo, favicon, tema): sem piscar o padrao.
+const sendShell = (res) => {
+  res.set("Content-Type", "text/html; charset=utf-8");
+  res.set("Cache-Control", "no-cache");
+  res.send(branding.shellHtml(SHELL_HTML));
+};
+app.get("/", (req, res) => sendShell(res));
 // Pagina de revisao do admin (/v/<id>) e do cliente (/s/<token>, /s/<token>/v/<id>).
 // So o HTML publico; os dados vem das APIs, que checam login ou o token.
 app.get(["/v/:id", "/s/:token", "/s/:token/v/:id"], (req, res) => {
   res.set("Referrer-Policy", "no-referrer");
-  res.sendFile(SHELL_HTML);
+  sendShell(res);
 });
-app.get("/favicon.ico", (req, res) => res.status(204).end());
+app.get("/favicon.ico", (req, res) => {
+  const p = branding.imagePath("favicon");
+  if (!p) return res.status(204).end();
+  res.redirect(302, `/_brand/favicon?v=${branding.version()}`);
+});
+// ---- Marca (publico: o link do cliente tambem usa) -------------------------
+app.get("/_brand", (req, res) => res.json(branding.publicInfo()));
+app.get("/_brand/theme.css", (req, res) => {
+  res.set("Content-Type", "text/css; charset=utf-8");
+  res.set("Cache-Control", "public, max-age=31536000, immutable");   // a URL muda (?v=) a cada alteracao
+  res.send(branding.themeCss());
+});
+app.get("/_brand/:kind(logo|favicon)", (req, res) => {
+  const p = branding.imagePath(req.params.kind);
+  if (!p) return res.status(404).end();
+  res.set("Content-Type", branding.mimeOf(req.params.kind));
+  res.set("Cache-Control", "public, max-age=31536000, immutable");
+  // um SVG enviado nunca roda script, mesmo aberto direto no navegador
+  res.set("Content-Security-Policy", "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox");
+  res.sendFile(p);
+});
 // PWA: service worker (escopo raiz) e manifest, publicos e sem segredo.
 app.get("/sw.js", (req, res) => {
   res.set("Content-Type", "application/javascript; charset=utf-8");
@@ -417,7 +445,8 @@ app.get("/sw.js", (req, res) => {
 });
 app.get("/manifest.webmanifest", (req, res) => {
   res.set("Content-Type", "application/manifest+json; charset=utf-8");
-  res.sendFile(path.join(__dirname, "public", "manifest.webmanifest"));
+  res.set("Cache-Control", "no-cache");
+  res.send(JSON.stringify(branding.manifest()));
 });
 app.use(express.static(path.join(__dirname, "public"), { index: false }));
 
@@ -640,6 +669,18 @@ app.patch("/_api/projects/:id/share", requireAdminSession, (req, res) => {
   res.json(sh);
 });
 
+// ---- Marca: configuracao (so o admin) --------------------------------------
+app.get("/_api/branding", requireAdminSession, (req, res) => res.json(branding.publicInfo()));
+app.put("/_api/branding", requireAdminSession, (req, res) => {
+  try { res.json(branding.update(req.body || {})); } catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.post("/_api/branding/reset", requireAdminSession, (req, res) => res.json(branding.reset()));
+app.put("/_api/branding/:kind(logo|favicon)", requireAdminSession, express.raw({ type: () => true, limit: "3mb" }), (req, res) => {
+  try { res.json(branding.setImage(req.params.kind, req.body, req.headers["content-type"])); }
+  catch (e) { res.status(400).json({ error: e.message }); }
+});
+app.delete("/_api/branding/:kind(logo|favicon)", requireAdminSession, (req, res) => res.json(branding.clearImage(req.params.kind)));
+
 // ---- Notificacoes (so o admin) ---------------------------------------------
 app.get("/_api/notifications", requireAdminSession, (req, res) =>
   res.json(notify.list({ limit: Number(req.query.limit) || 50, before: req.query.before })));
@@ -680,7 +721,7 @@ function sendTranscriptDoc(res, a) {
   const tr = transcript.forPlayer(a.id);
   if (!tr) return res.status(404).json({ error: "no transcript" });
   const st = store.getSettings(a.project_id);
-  const doc = transcript.toWordDoc({ title: path.basename(a.name, path.extname(a.name)), project: a.project_name, tr,
+  const doc = transcript.toWordDoc({ title: path.basename(a.name, path.extname(a.name)), project: a.project_name, tr, appName: branding.name(),
     chapters: st.chapters ? store.listChapters(a.id) : [] });
   const fname = `${path.basename(a.name, path.extname(a.name))} - Transcript.doc`;
   res.set("Content-Type", "application/msword; charset=utf-8");

@@ -1,7 +1,7 @@
 // Service worker do PWA. Estrategia: rede-primeiro para o "shell" (fica sempre
 // atualizado online e funciona offline pelo cache). NUNCA intercepta dados
 // privados nem os endpoints do app (deixa passar direto pra rede).
-const CACHE = "fframe-shell-v17";
+const CACHE = "fframe-shell-v18";
 const SHELL = ["/", "/app.css", "/app.js", "/review.js", "/i18n.js", "/qrcode.min.js", "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
 
 self.addEventListener("install", (e) => {
@@ -48,7 +48,7 @@ self.addEventListener("push", (e) => {
     // Painel aberto e na frente: ele mesmo mostra o aviso (nao duplica).
     if (d.id && wins.some((c) => c.focused && c.visibilityState === "visible")) return;
     await self.registration.showNotification(d.title || "Fframe", {
-      body: d.body || "", icon: "/icon-192.png", badge: "/icon-192.png",
+      body: d.body || "", icon: d.icon || "/icon-192.png", badge: "/icon-192.png",
       tag: d.tag || d.id || undefined, data: { url: d.url || "/", id: d.id || null },
     });
   })());

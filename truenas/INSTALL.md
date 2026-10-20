@@ -112,6 +112,16 @@ Fframe tells you when clients act on your share links. Your own activity never n
   - Links in emails use `PUBLIC_BASE` from the YAML, so set it to the address you open Fframe at (for example `https://review.sixfeatmedia.com`).
   - The daily summary uses the timezone in the YAML (`TZ`). Set it to yours, for example `America/Toronto`.
 
+## Branding
+
+Click **🎨 Branding** (sidebar, under Settings) to make Fframe look like your company. It applies to you and to clients on share links, in notification emails, in browser notifications and in exported Word transcripts.
+
+- **App name** replaces "Fframe" in the browser tab, the login screen, emails and everywhere else.
+- **Highlight color** is used for buttons, the playhead, chapter numbers and highlights. Pick one of the presets or enter a hex code; the page previews it live. Text on top switches between black and white automatically, so light colors stay readable. Click **Save** to keep it.
+- **Logo** replaces the dot and name at the top of the sidebar, the login screen and the client pages. Use a white or light version, because the background is dark. A transparent PNG about 400 px wide works best, since most email apps don't show SVG logos.
+- **Favicon** is the tab icon (also used for bookmarks and browser notifications). Use a square PNG of at least 192 × 192, or an SVG.
+- **Reset to Fframe defaults** puts everything back.
+
 ## Project settings
 
 Click **⚙ Settings** in a project to turn **Chapters** or **Transcripts** off for projects that don't use them. They're hidden for you and for anyone viewing the share link, including the tabs, the chapter buttons and the transcript download. Your data isn't deleted, so turning a setting back on brings everything back.

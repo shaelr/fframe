@@ -15,6 +15,7 @@ const fs = require("fs");
 const path = require("path");
 const store = require("./store");
 const push = require("./push");
+const branding = require("./branding");
 
 const LIST_FILE = path.join(store.DATA_DIR, "notifications.json");
 const SETTINGS_FILE = path.join(store.DATA_DIR, "notify.json");
@@ -128,7 +129,8 @@ function pushOut(n) {
   const what = l.startsWith(n.actor + " ") ? l.slice(n.actor.length + 1) : l;
   const body = what.charAt(0).toUpperCase() + what.slice(1) + (n.text ? `\n“${n.text}”` : "");
   const url = n.asset_id && n.type !== "visit" ? linkFor("", n) : "/";
-  push.send({ id: n.id, title: `${n.actor} · ${n.project_name || "Fframe"}`, body, url, tag: n.id }).catch(() => {});
+  push.send({ id: n.id, title: `${n.actor} · ${n.project_name || branding.name()}`, body, url, tag: n.id,
+    icon: branding.publicInfo().favicon || undefined }).catch(() => {});
 }
 
 function list({ limit = 50, before } = {}) {
@@ -177,9 +179,11 @@ function linkFor(base, n) {
 
 /** Monta { subject, text, html } para um grupo de notificacoes. */
 function compose(list, base) {
+  const brand = branding.publicInfo(), app = brand.name, accent = brand.accent;
+  const logo = brand.logo && /^https?:/.test(base) ? base + brand.logo : null;   // imagem precisa de endereco completo
   const byProject = new Map();
   for (const n of list) {
-    const k = n.project_name || "Fframe";
+    const k = n.project_name || branding.name();
     (byProject.get(k) || byProject.set(k, []).get(k)).push(n);
   }
   const comments = list.filter((n) => n.type === "comment" || n.type === "reply").length;
@@ -200,17 +204,18 @@ function compose(list, base) {
       html += `<div style="border:1px solid #E3E3EA;border-radius:10px;padding:12px 14px;margin:0 0 10px">
         <div style="font:13px Arial,sans-serif;color:#555">${esc(line(n))}</div>
         ${n.text ? `<div style="font:15px Arial,sans-serif;color:#111;margin:6px 0 0">${esc(n.text)}</div>` : ""}
-        <a href="${esc(url)}" style="display:inline-block;margin-top:8px;font:600 13px Arial,sans-serif;color:#1A4DFF;text-decoration:none">Open in Fframe →</a>
+        <a href="${esc(url)}" style="display:inline-block;margin-top:8px;font:600 13px Arial,sans-serif;color:${accent};text-decoration:none">Open in ${esc(app)} →</a>
       </div>`;
     }
   }
   html = `<div style="max-width:560px;margin:0 auto;padding:8px 4px">
-    <div style="font:700 15px Arial,sans-serif;color:#1A4DFF">● Fframe</div>
+    ${logo ? `<img src="${esc(logo)}" alt="${esc(app)}" style="display:block;max-height:40px;max-width:220px;border:0" />`
+           : `<div style="font:700 15px Arial,sans-serif;color:${accent}">● ${esc(app)}</div>`}
     <div style="font:15px Arial,sans-serif;color:#111;margin-top:10px">${esc(subject)}</div>
     ${html}
-    <div style="font:11px Arial,sans-serif;color:#999;margin-top:18px">You get these emails because notifications are turned on in Fframe (Notifications settings).</div>
+    <div style="font:11px Arial,sans-serif;color:#999;margin-top:18px">You get these emails because notifications are turned on in ${esc(app)} (Notifications settings).</div>
   </div>`;
-  return { subject: `Fframe: ${subject}`, text: `${subject}\n${text}\nNotification settings: ${base}/`, html };
+  return { subject: `${app}: ${subject}`, text: `${subject}\n${text}\nNotification settings: ${base}/`, html };
 }
 
 let transport = null, transportKey = "";
@@ -235,10 +240,11 @@ async function sendMail(msg) {
 }
 
 async function sendTest(base) {
-  const sample = [{ type: "comment", actor: "Test client", project_name: "Fframe", asset_name: "Sample video.mp4", asset_id: null,
-    text: "This is a test notification from Fframe. If you can read this, email notifications work.", t: 12 }];
+  const app = branding.name();
+  const sample = [{ type: "comment", actor: "Test client", project_name: app, asset_name: "Sample video.mp4", asset_id: null,
+    text: `This is a test notification from ${app}. If you can read this, email notifications work.`, t: 12 }];
   const m = compose(sample, base);
-  await sendMail({ ...m, subject: "Fframe: test notification" });
+  await sendMail({ ...m, subject: `${app}: test notification` });
 }
 
 // Agenda: na hora = espera ~1 min de silencio (agrupa uma rajada de comentarios,

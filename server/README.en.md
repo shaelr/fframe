@@ -74,6 +74,10 @@ Routes: `GET /_api/assets/:id/transcript` (login), `PUT`/`PATCH`/`DELETE` same p
 - **Transcript export**: `GET /_api/assets/:id/transcript.doc` (and `/_s/<token>/transcript/<id>` when allowed) returns a Word-compatible `.doc`.
 - **Share links** (`project.share` in `data/projects.json`): `GET/PATCH /_api/projects/:id/share` (admin session) with `enabled`, `allow_comments`, `allow_download_video`, `allow_download_transcript`, `regenerate`. Clients use `/_s/<token>/…` (info, assets, media, download, chapters, transcript, comments). Every request is checked against the token's project and settings. A guest is identified by a random `X-Guest-Id`, stored only as a hash, so they can delete only their own comments. The token is redacted from the request log.
 
+## Branding
+
+`lib/branding.js` keeps the app name, accent color, logo and favicon in `data/branding.json` and `data/branding/`. The server injects them into every page it sends (title, favicon, `data-brand-*` attributes, and `/_brand/theme.css` for the accent), so there's no flash of the default look. The manifest is generated too. Public: `GET /_brand`, `/_brand/theme.css`, `/_brand/logo`, `/_brand/favicon` (uploaded SVGs are served sandboxed). Admin: `GET/PUT /_api/branding`, `PUT/DELETE /_api/branding/{logo|favicon}` (raw image body, 3 MB max), `POST /_api/branding/reset`. Every accent shade in `app.css` derives from `--royal`, and text on it uses `--on-accent` (black or white, by contrast).
+
 ## Notifications
 
 `lib/notify.js` records client activity on share links (`comment`, `reply`, `download`, `view`, `visit`) in `data/notifications.json`, and sends email through SMTP (nodemailer): right away (grouped after a minute of quiet), hourly, or daily at a chosen hour (`TZ`). Settings live in `data/notify.json`; the SMTP password is never returned to the browser. Admin-only routes: `GET /_api/notifications`, `POST /_api/notifications/read`, `GET/PUT /_api/notify/settings`, `POST /_api/notify/test-email`. The panel polls every 20 s for the bell.

@@ -6,10 +6,23 @@
 let projects = [], current = null, configured = false;
 const DEVICES_VIEW = "__devices__"; // valor especial de `current` p/ tela Dispositivos
 const NOTIFY_VIEW = "__notify__";   // tela de configuracao das notificacoes
+const BRAND_VIEW = "__brand__";     // tela da marca (nome, cor, logo, favicon)
 const LIBRARY_VIEW = "__library__"; // tela Biblioteca (pastas do NAS)
 let libraryPath = "";               // pasta aberta no navegador da Biblioteca
 
 const $ = (id) => document.getElementById(id);
+
+// Marca da empresa (o servidor ja injeta no <html>): nome, logo e icone.
+const Brand = {
+  get name() { return document.documentElement.dataset.brandName || "Fframe"; },
+  get logo() { return document.documentElement.dataset.brandLogo || ""; },
+  get icon() { return document.documentElement.dataset.brandIcon || "/icon-192.png"; },
+};
+// Logo (se houver) ou o ponto + nome. `sub` = linha pequena embaixo do nome.
+function brandMark(sub, big) {
+  if (Brand.logo) return `<img class="brand-logo${big ? " big" : ""}" src="${escapeHtml(Brand.logo)}" alt="${escapeHtml(Brand.name)}" />`;
+  return `<span class="dot"></span><div class="brand-txt"><b>${escapeHtml(Brand.name)}</b>${sub ? `<span>${escapeHtml(sub)}</span>` : ""}</div>`;
+}
 const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtSize = (b) => b >= 1073741824 ? (b / 1073741824).toFixed(2) + " GB"
@@ -122,8 +135,20 @@ const confirmModal = (message, okText, danger) =>
 const promptModal = (title, placeholder) => dialog({ title, input: true, placeholder, okText: t("modal.create") });
 
 // ---- Autenticacao -----------------------------------------------------------
+function applyBrandShell() {
+  const side = document.querySelector("#side .brand");
+  if (side) {
+    const bell = $("bell");
+    side.innerHTML = brandMark(location.host);
+    if (bell) side.appendChild(bell);
+    const host = side.querySelector(".brand-txt span"); if (host) host.id = "host";
+  }
+  const auth = document.querySelector("#auth-card .auth-brand");
+  if (auth) auth.innerHTML = brandMark("", true);
+}
 async function init() {
   I18n.init();
+  applyBrandShell();
   if (isSharePath()) return route();                 // link do cliente: sem login
   const st = await (await fetch("/_auth/status")).json();
   configured = st.configured;
@@ -143,7 +168,7 @@ function showAuth() {
 function showApp() {
   $("auth").classList.add("hidden");
   $("app").classList.remove("hidden");
-  $("host").textContent = location.host;
+  if ($("host")) $("host").textContent = location.host;
   route();
   Notifs.start();
   // Biblioteca so aparece se o share estiver montado (e so p/ sessao de admin).
@@ -206,11 +231,13 @@ async function render() {
   $("nav-devices").classList.toggle("active", current === DEVICES_VIEW);
   $("nav-library").classList.toggle("active", current === LIBRARY_VIEW);
   $("nav-notify").classList.toggle("active", current === NOTIFY_VIEW);
+  $("nav-brand").classList.toggle("active", current === BRAND_VIEW);
   $("tr-import").classList.add("hidden");
   $("share-btn").classList.add("hidden");
   $("settings-btn").classList.add("hidden");
   if (current === DEVICES_VIEW) return renderDevices();
   if (current === NOTIFY_VIEW) return renderNotifySettings();
+  if (current === BRAND_VIEW) return renderBranding();
   if (current === LIBRARY_VIEW) return renderLibrary();
   const proj = projects.find((p) => p.id === current);
   $("title").textContent = proj ? proj.name : t("title.allVideos");
@@ -320,7 +347,7 @@ async function openAdminReview(id) {
   $("app").classList.add("hidden");
   const box = $("review");
   box.classList.remove("hidden");
-  document.title = a.name + " · Fframe";
+  document.title = a.name + " · " + Brand.name;
   const base = `/_api/assets/${encodeURIComponent(id)}`;
   reviewHandle = Review.open(box, {
     id, name: a.name, admin: true, call: api,
@@ -331,7 +358,7 @@ async function openAdminReview(id) {
     startAt: (() => { const v = parseFloat(new URLSearchParams(location.search).get("t")); return Number.isFinite(v) ? v : undefined; })(),
     focusComment: new URLSearchParams(location.search).get("c") || null,
     backLabel: a.project_name || t("title.allVideos"),
-    onBack: () => { document.title = "Fframe"; if (history.state && history.state.app) history.back(); else navigate("/"); },
+    onBack: () => { document.title = Brand.name; if (history.state && history.state.app) history.back(); else navigate("/"); },
   });
 }
 
@@ -830,7 +857,7 @@ const Share = {
       if (cur && !force) return resolve(cur);
       const back = $("modal");
       back.innerHTML = `<form class="modal-card" id="nm-form" autocomplete="on">
-        <div class="auth-brand"><span class="dot"></span><b>Fframe</b></div>
+        <div class="auth-brand">${brandMark("", true)}</div>
         <h3>${escapeHtml(t("share.name.title"))}</h3>
         <p class="modal-msg">${escapeHtml(t("share.name.msg", { project: (Share.info && Share.info.project) || "" }))}</p>
         <input id="nm-input" class="fld" type="text" name="name" autocomplete="name" maxlength="60" placeholder="${escapeHtml(t("share.name.ph"))}" value="${escapeHtml(cur)}" />
@@ -864,7 +891,7 @@ const Share = {
       const r = await fetch(`/_s/${encodeURIComponent(token)}/info`).catch(() => null);
       if (!r || !r.ok) {
         box.classList.remove("hidden");
-        box.innerHTML = `<div class="share-dead"><div class="auth-brand"><span class="dot"></span><b>Fframe</b></div>
+        box.innerHTML = `<div class="share-dead"><div class="auth-brand">${brandMark("", true)}</div>
           <h2>${escapeHtml(t("share.dead.title"))}</h2><p>${escapeHtml(t("share.dead.msg"))}</p></div>`;
         return;
       }
@@ -886,7 +913,7 @@ const Share = {
   },
   header() {
     return `<header class="share-top">
-      <div class="brand"><span class="dot"></span><div><b>Fframe</b><span>${escapeHtml(t("share.review"))}</span></div></div>
+      <div class="brand">${brandMark(t("share.review"))}</div>
       <div class="share-proj">${escapeHtml(Share.info.project)}</div>
       <div class="share-me">${escapeHtml(t("share.as", { name: Share.guestName() }))} · <button class="linkbtn" type="button" id="sh-rename">${escapeHtml(t("share.change"))}</button></div>
     </header>`;
@@ -896,7 +923,7 @@ const Share = {
     if (rn) rn.addEventListener("click", async () => { await Share.askName(true); route(); });
   },
   gallery() {
-    document.title = Share.info.project + " · Fframe";
+    document.title = Share.info.project + " · " + Brand.name;
     const box = $("share");
     box.classList.remove("hidden");
     const tk = encodeURIComponent(Share.token);
@@ -1055,7 +1082,7 @@ const Notifs = {
     if (this.push && away) return;
     if (this.browserOn() && away && "Notification" in window && Notification.permission === "granted") {
       try {
-        const bn = new Notification(title, { body, icon: "/icon-192.png", tag: n.id });
+        const bn = new Notification(title, { body, icon: Brand.icon, tag: n.id });
         bn.onclick = () => { window.focus(); this.open(n); bn.close(); };
       } catch {}
     } else if (!away) toast(`${NOTIF_ICON[n.type] || "🔔"} ${n.actor} ${notifLine(n).replace(/^\S/, (c) => c.toLowerCase())}`);
@@ -1201,7 +1228,7 @@ async function renderNotifySettings() {
         try { await Notifs.pushEnable(true); }
         catch (e) { Notifs.push = false; toast(t("nt.br.pushFail", { msg: e.message || String(e) }), "err"); }
       }
-      if (!Notifs.push) try { new Notification(t("nt.br.testTitle"), { body: t("nt.br.testBody"), icon: "/icon-192.png" }); } catch {}
+      if (!Notifs.push) try { new Notification(t("nt.br.testTitle"), { body: t("nt.br.testBody"), icon: Brand.icon }); } catch {}
     } else {
       Notifs.setBrowser(false);
       await Notifs.pushDisable();
@@ -1234,6 +1261,109 @@ async function renderNotifySettings() {
   });
 }
 
+// =============================================================================
+// MARCA (admin): nome do app, cor de destaque, logo e favicon.
+// Salvar recarrega a pagina: o servidor injeta a marca no HTML (sem piscar).
+// =============================================================================
+const ACCENT_PRESETS = ["#1A4DFF", "#7C3AED", "#E11D48", "#F97316", "#EAB308", "#16A34A", "#0EA5E9", "#14B8A6", "#F5F5F7"];
+async function renderBranding() {
+  $("title").textContent = t("br.title");
+  $("count").textContent = "";
+  const r = await api("GET", "/_api/branding");
+  const b = await r.json().catch(() => null);
+  if (!r.ok || !b) { $("content").innerHTML = `<div class="empty">${escapeHtml(t("share.fail"))}</div>`; return; }
+  const img = (kind, url) => url ? `<img class="br-img ${kind}" src="${escapeHtml(url)}" alt="" />` : `<span class="br-none">${escapeHtml(t("br.none"))}</span>`;
+  $("content").innerHTML = `<div class="br-wrap">
+    <p class="dev-hint">${escapeHtml(t("br.intro"))}</p>
+
+    <div class="side-h lib-h">${escapeHtml(t("br.sec.name"))}</div>
+    <div class="nt-card">
+      <label class="br-field">${escapeHtml(t("br.name"))}<input class="fld" id="br-name" type="text" maxlength="60" value="${escapeHtml(b.name)}" placeholder="Fframe" /></label>
+      <p class="dev-note">${escapeHtml(t("br.nameHint"))}</p>
+    </div>
+
+    <div class="side-h lib-h">${escapeHtml(t("br.sec.color"))}</div>
+    <div class="nt-card">
+      <div class="br-colors">
+        <input type="color" id="br-color" value="${escapeHtml(b.accent)}" aria-label="${escapeHtml(t("br.color"))}" />
+        <input class="fld br-hex" id="br-hex" type="text" maxlength="7" value="${escapeHtml(b.accent)}" spellcheck="false" />
+        <span class="br-presets">${ACCENT_PRESETS.map((c) => `<button type="button" class="br-swatch" data-c="${c}" title="${c}" aria-label="${c}"><i class="sw-${c.slice(1)}"></i></button>`).join("")}</span>
+      </div>
+      <div class="br-preview" id="br-preview">
+        <button class="btn-primary" type="button" tabindex="-1">${escapeHtml(t("br.previewBtn"))}</button>
+        <span class="cmt-time">0:22</span>
+        <span class="br-bar"><i></i></span>
+        <span class="dot"></span>
+      </div>
+      <p class="dev-note">${escapeHtml(t("br.colorHint"))}</p>
+    </div>
+
+    <div class="side-h lib-h">${escapeHtml(t("br.sec.images"))}</div>
+    <div class="br-images">
+      <div class="nt-card br-up">
+        <b>${escapeHtml(t("br.logo"))}</b><small>${escapeHtml(t("br.logoHint"))}</small>
+        <div class="br-show logo">${img("logo", b.logo)}</div>
+        <div class="br-acts"><label class="btn-ghost br-pick">${escapeHtml(b.logo ? t("br.replace") : t("br.upload"))}<input type="file" data-kind="logo" accept="image/png,image/jpeg,image/webp,image/svg+xml,image/gif" hidden /></label>
+          ${b.logo ? `<button class="btn-ghost danger-txt" type="button" data-clear="logo">${escapeHtml(t("br.remove"))}</button>` : ""}</div>
+      </div>
+      <div class="nt-card br-up">
+        <b>${escapeHtml(t("br.favicon"))}</b><small>${escapeHtml(t("br.faviconHint"))}</small>
+        <div class="br-show favicon">${img("favicon", b.favicon)}</div>
+        <div class="br-acts"><label class="btn-ghost br-pick">${escapeHtml(b.favicon ? t("br.replace") : t("br.upload"))}<input type="file" data-kind="favicon" accept="image/png,image/svg+xml,image/x-icon,image/vnd.microsoft.icon,image/webp,image/gif,image/jpeg" hidden /></label>
+          ${b.favicon ? `<button class="btn-ghost danger-txt" type="button" data-clear="favicon">${escapeHtml(t("br.remove"))}</button>` : ""}</div>
+      </div>
+    </div>
+
+    <div class="modal-acts br-save">
+      <button class="btn-ghost danger-txt" type="button" id="br-reset">${escapeHtml(t("br.reset"))}</button>
+      <button class="btn-primary" type="button" id="br-save">${escapeHtml(t("br.save"))}</button>
+    </div>
+  </div>`;
+  const root = document.documentElement, orig = b.accent;
+  const color = $("br-color"), hex = $("br-hex");
+  // Previa ao vivo: a pagina inteira muda de cor enquanto escolhe.
+  const preview = (c) => {
+    if (!/^#[0-9a-f]{6}$/i.test(c)) return;
+    root.style.setProperty("--royal", c);
+    const [R, G, B] = c.slice(1).match(/../g).map((x) => parseInt(x, 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    root.style.setProperty("--on-accent", 0.2126 * R + 0.7152 * G + 0.0722 * B > 0.4 ? "#0A0A0B" : "#FFFFFF");
+  };
+  color.addEventListener("input", () => { hex.value = color.value.toUpperCase(); preview(color.value); });
+  hex.addEventListener("input", () => { const v = hex.value.trim(); if (/^#[0-9a-f]{6}$/i.test(v)) { color.value = v; preview(v); } });
+  $("content").querySelectorAll(".br-swatch").forEach((sw) => sw.addEventListener("click", () => { color.value = sw.dataset.c; hex.value = sw.dataset.c; preview(sw.dataset.c); }));
+  $("br-save").addEventListener("click", async () => {
+    const accent = hex.value.trim();
+    if (accent && !/^#[0-9a-f]{6}$/i.test(accent)) { toast(t("br.badColor"), "err"); return; }
+    const rr = await api("PUT", "/_api/branding", { name: $("br-name").value, accent });
+    const d = await rr.json().catch(() => ({}));
+    if (!rr.ok) { toast(d.error || t("share.fail"), "err"); return; }
+    location.reload();                                         // a marca vem do servidor no HTML
+  });
+  $("br-reset").addEventListener("click", async () => {
+    if (!(await confirmModal(t("br.reset.confirm"), t("br.reset"), true))) return;
+    const rr = await api("POST", "/_api/branding/reset");
+    if (rr.ok) location.reload(); else toast(t("share.fail"), "err");
+  });
+  $("content").querySelectorAll("input[type=file][data-kind]").forEach((inp) => inp.addEventListener("change", async () => {
+    const f = inp.files[0]; inp.value = "";
+    if (!f) return;
+    if (f.size > 3 * 1024 * 1024) { toast(t("br.tooBig"), "err"); return; }
+    const rr = await fetch(`/_api/branding/${inp.dataset.kind}`, { method: "PUT", headers: { "Content-Type": f.type || "application/octet-stream" }, body: f });
+    const d = await rr.json().catch(() => ({}));
+    if (!rr.ok) { toast(d.error || t("share.fail"), "err"); return; }
+    location.reload();
+  }));
+  $("content").querySelectorAll("[data-clear]").forEach((btn) => btn.addEventListener("click", async () => {
+    const rr = await api("DELETE", `/_api/branding/${btn.dataset.clear}`);
+    if (rr.ok) location.reload(); else toast(t("share.fail"), "err");
+  }));
+  // sair sem salvar desfaz a previa
+  const undo = () => { if (current !== BRAND_VIEW) { root.style.removeProperty("--royal"); root.style.removeProperty("--on-accent"); window.removeEventListener("click", undoLater, true); } };
+  const undoLater = () => setTimeout(undo, 0);
+  window.addEventListener("click", undoLater, true);
+  void orig;
+}
+
 // ---- Gaveta (mobile) --------------------------------------------------------
 const openDrawer = () => $("app").classList.add("open");
 const closeDrawer = () => $("app").classList.remove("open");
@@ -1246,6 +1376,7 @@ $("nav-devices").addEventListener("click", () => { current = DEVICES_VIEW; close
 $("nav-library").addEventListener("click", () => { current = LIBRARY_VIEW; closeDrawer(); render(); });
 $("nav-notify").addEventListener("click", () => { current = NOTIFY_VIEW; closeDrawer(); if (location.pathname !== "/") navigate("/"); else render(); });
 $("bell").addEventListener("click", (e) => { e.stopPropagation(); Notifs.toggle(); });
+$("nav-brand").addEventListener("click", () => { current = BRAND_VIEW; closeDrawer(); if (location.pathname !== "/") navigate("/"); else render(); });
 $("tr-import").addEventListener("click", () => $("tr-import-file").click());
 $("share-btn").addEventListener("click", shareModal);
 $("settings-btn").addEventListener("click", settingsModal);

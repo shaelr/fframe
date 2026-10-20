@@ -260,7 +260,7 @@ const hms = (sec) => {
   const p = (n) => String(n).padStart(2, "0");
   return `${p(Math.floor(sec / 3600))}:${p(Math.floor(sec / 60) % 60)}:${p(sec % 60)}`;
 };
-function toWordDoc({ title, project, tr, chapters }) {
+function toWordDoc({ title, project, tr, chapters, appName }) {
   const chs = (chapters || []).slice().sort((a, b) => a.t - b.t);
   const parts = [];
   let ci = 0, lastSpeaker = null;
@@ -302,7 +302,7 @@ ${project ? `<p class="meta"><b>Project:</b> ${esc(project)}</p>` : ""}
 <p class="meta"><b>Length:</b> ${hms(end)} &nbsp;·&nbsp; <b>Words:</b> ${words.toLocaleString("en-GB")}${chs.length ? ` &nbsp;·&nbsp; <b>Chapters:</b> ${chs.length}` : ""} &nbsp;·&nbsp; <b>Exported:</b> ${esc(date)}</p>
 <p class="rule">&nbsp;</p>
 ${parts.join("\n")}
-<p class="foot">Transcript exported from Fframe. Timecodes are hours:minutes:seconds from the start of the video.</p>
+<p class="foot">Transcript exported from ${esc(appName || "Fframe")}. Timecodes are hours:minutes:seconds from the start of the video.</p>
 </div></body></html>`;
 }
 
