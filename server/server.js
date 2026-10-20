@@ -22,6 +22,7 @@ const store = require("./lib/store");
 const library = require("./lib/library");
 const transcript = require("./lib/transcript");
 const notify = require("./lib/notify");
+const push = require("./lib/push");
 
 const PORT = process.env.PORT || 3000;
 // Base publica usada para montar as upload_urls. Em producao aponte para o host
@@ -654,6 +655,20 @@ app.post("/_api/notify/test-email", requireAdminSession, async (req, res) => {
 });
 
 // Recursos do projeto (capitulos, transcricao) — valem para admin e cliente.
+// Web Push: uma inscricao por navegador (a chave privada VAPID fica no servidor).
+app.get("/_api/push/key", requireAdminSession, (req, res) => res.json({ publicKey: push.publicKey() }));
+app.post("/_api/push/subscription", requireAdminSession, async (req, res) => {
+  const { subscription, test } = req.body || {};
+  try { push.subscribe(subscription, req.headers["user-agent"]); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  let delivered = null;
+  if (test) delivered = await push.send({ title: "Fframe notifications are on",
+    body: "You'll get client activity here, even when Fframe is closed.", url: "/", tag: "fframe-test" }, subscription.endpoint);
+  res.json({ ok: true, delivered });
+});
+app.delete("/_api/push/subscription", requireAdminSession, (req, res) =>
+  res.json({ ok: true, removed: push.unsubscribe(String((req.body || {}).endpoint || "")) }));
+
 app.patch("/_api/projects/:id/settings", requireAdminSession, (req, res) => {
   const st = store.updateSettings(req.params.id, req.body || {});
   if (!st) return res.status(404).json({ error: "project not found" });
@@ -980,6 +995,7 @@ app.listen(PORT, "0.0.0.0", () => {
   log(`  Projetos: ${store.listProjects().map((p) => p.name).join(", ")}`);
   log(`  Painel:  ${PUBLIC_BASE}/`);
   notify.start(PUBLIC_BASE, log);
+  push.init(PUBLIC_BASE, log);
   if (library.enabled()) {
     log(`  Biblioteca: ${library.LIBRARY_DIR} (reindexando pastas vinculadas...)`);
     library.scanAll().then(() => log("  Biblioteca: reindexacao concluida"));

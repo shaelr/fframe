@@ -3,8 +3,9 @@
 // Eventos vindos do link de compartilhamento (comentario, resposta, download,
 // video aberto, projeto aberto) viram notificacoes no painel do admin e,
 // conforme a configuracao, um e-mail (na hora, agrupado; resumo de hora em
-// hora; ou resumo diario). As notificacoes do navegador sao feitas pelo painel
-// (ele consulta /_api/notifications) e ligadas por navegador.
+// hora; ou resumo diario). As notificacoes do navegador sao ligadas por
+// navegador: com Web Push (lib/push.js) chegam mesmo com o Fframe fechado; sem
+// push, o painel aberto consulta /_api/notifications e mostra ele mesmo.
 //
 // data/notifications.json  -> [{ id, at, type, project_id, project_name, asset_id,
 //                                asset_name, actor, text, t, comment_id, read, emailed }]
@@ -13,6 +14,7 @@
 const fs = require("fs");
 const path = require("path");
 const store = require("./store");
+const push = require("./push");
 
 const LIST_FILE = path.join(store.DATA_DIR, "notifications.json");
 const SETTINGS_FILE = path.join(store.DATA_DIR, "notify.json");
@@ -116,7 +118,17 @@ function record(ev) {
   items.push(n);
   if (items.length > MAX_ITEMS) items = items.slice(-MAX_ITEMS);
   persist();
+  if (conf.app) pushOut(n);
   return n;
+}
+
+// Push para os navegadores inscritos (mesmo texto e link do sino).
+function pushOut(n) {
+  const l = line(n);
+  const what = l.startsWith(n.actor + " ") ? l.slice(n.actor.length + 1) : l;
+  const body = what.charAt(0).toUpperCase() + what.slice(1) + (n.text ? `\n“${n.text}”` : "");
+  const url = n.asset_id && n.type !== "visit" ? linkFor("", n) : "/";
+  push.send({ id: n.id, title: `${n.actor} · ${n.project_name || "Fframe"}`, body, url, tag: n.id }).catch(() => {});
 }
 
 function list({ limit = 50, before } = {}) {

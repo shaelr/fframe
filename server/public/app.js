@@ -170,7 +170,11 @@ async function submitAuth(ev) {
     showApp();
   } finally { $("auth-btn").disabled = false; }
 }
-async function logout() { await api("POST", "/_auth/logout"); location.reload(); }
+async function logout() {
+  // Sair para de mandar push para este navegador (volta sozinho no proximo login).
+  if (Notifs.push) await Notifs.pushDisable().catch(() => {});
+  await api("POST", "/_auth/logout"); location.reload();
+}
 
 // ---- Projetos + videos ------------------------------------------------------
 async function loadProjects() {
@@ -967,15 +971,61 @@ function notifLine(n) {
     default: return "";
   }
 }
+// Web Push: chave publica VAPID (base64url) -> bytes, como o pushManager quer.
+const b64uBytes = (s) => {
+  const b = atob((s + "===".slice((s.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+};
+const sameBytes = (a, b) => { if (!a || !b) return false; a = new Uint8Array(a); return a.length === b.length && a.every((x, i) => x === b[i]); };
+async function swReady() {
+  await navigator.serviceWorker.register("/sw.js");
+  return Promise.race([navigator.serviceWorker.ready,
+    new Promise((_, no) => setTimeout(() => no(new Error("service worker not ready")), 10000))]);
+}
+
 const Notifs = {
   items: [], unread: 0, seen: new Set(), primed: false, timer: null,
+  push: false,   // este navegador esta inscrito no Web Push (o service worker mostra as notificacoes)
   browserOn() { try { return localStorage.getItem("fframe.browserNotify") === "1"; } catch { return false; } },
   setBrowser(on) { try { localStorage.setItem("fframe.browserNotify", on ? "1" : "0"); } catch {} },
+  pushSupported() { return window.isSecureContext && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; },
+  async pushSub() {
+    if (!this.pushSupported()) return null;
+    try { return await (await swReady()).pushManager.getSubscription(); } catch { return null; }
+  },
+  /** Inscreve este navegador (ou reenvia a inscricao atual, para o servidor nao perde-la). */
+  async pushEnable(test) {
+    const reg = await swReady();
+    const kr = await api("GET", "/_api/push/key");
+    const { publicKey } = await kr.json().catch(() => ({}));
+    if (!kr.ok || !publicKey) throw new Error("the server has no push key");
+    const key = b64uBytes(publicKey);
+    let sub = await reg.pushManager.getSubscription();
+    if (sub && !sameBytes(sub.options.applicationServerKey, key)) { await sub.unsubscribe().catch(() => {}); sub = null; }
+    if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+    const r = await api("POST", "/_api/push/subscription", { subscription: sub.toJSON(), test: !!test });
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "the server refused the subscription");
+    this.push = true;
+  },
+  async pushDisable() {
+    const sub = await this.pushSub();
+    this.push = false;
+    if (!sub) return;
+    await api("DELETE", "/_api/push/subscription", { endpoint: sub.endpoint }).catch(() => {});
+    await sub.unsubscribe().catch(() => {});
+  },
   start() {
     if (this.timer) return;
     this.poll();
     this.timer = setInterval(() => this.poll(), 20000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) this.poll(); });
+    if (this.browserOn() && this.pushSupported() && "Notification" in window && Notification.permission === "granted")
+      this.pushEnable(false).catch(() => { this.push = false; });
+    if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", (e) => {
+      const d = e.data || {};
+      if (d.type === "fframe-push") this.poll();
+      else if (d.type === "fframe-open" && typeof d.url === "string" && d.url.startsWith("/")) { closeNotifPop(); navigate(d.url); this.poll(); }
+    });
   },
   async poll() {
     let d;
@@ -1001,6 +1051,8 @@ const Notifs = {
     const title = `${n.actor} · ${n.project_name}`;
     const body = notifLine(n) + (n.text ? `\n“${n.text}”` : "");
     const away = document.hidden || !document.hasFocus();
+    // Com Web Push quem mostra e o service worker (nao duplica aqui).
+    if (this.push && away) return;
     if (this.browserOn() && away && "Notification" in window && Notification.permission === "granted") {
       try {
         const bn = new Notification(title, { body, icon: "/icon-192.png", tag: n.id });
@@ -1075,7 +1127,9 @@ async function renderNotifySettings() {
   const em = st.email, smtp = em.smtp;
   const perm = "Notification" in window ? Notification.permission : "unsupported";
   const browserState = perm === "unsupported" ? t("nt.br.unsupported") : perm === "denied" ? t("nt.br.denied")
-    : perm === "granted" && Notifs.browserOn() ? t("nt.br.on") : t("nt.br.off");
+    : perm === "granted" && Notifs.browserOn()
+      ? (Notifs.push ? t("nt.br.on") : t("nt.br.onTab") + (Notifs.pushSupported() ? "" : " " + t("nt.br.needHttps")))
+      : t("nt.br.off");
   const evRows = st.types.map((k) => `<tr>
       <td><span class="nt-ic">${NOTIF_ICON[k]}</span> <b>${escapeHtml(t("nt.ev." + k))}</b><small>${escapeHtml(t("nt.ev." + k + "Hint"))}</small></td>
       <td class="c"><input type="checkbox" data-ev="${k}" data-ch="app"${st.events[k].app ? " checked" : ""} aria-label="${escapeHtml(t("nt.col.app"))}" /></td>
@@ -1136,13 +1190,22 @@ async function renderNotifySettings() {
   // navegador (por navegador)
   const br = $("nt-br");
   if (br) br.addEventListener("change", async () => {
+    br.disabled = true;
     if (br.checked) {
       let p = Notification.permission;
       if (p === "default") p = await Notification.requestPermission();
       if (p !== "granted") { br.checked = false; Notifs.setBrowser(false); toast(t("nt.br.denied"), "err"); return renderNotifySettings(); }
       Notifs.setBrowser(true);
-      try { new Notification(t("nt.br.testTitle"), { body: t("nt.br.testBody"), icon: "/icon-192.png" }); } catch {}
-    } else Notifs.setBrowser(false);
+      // Com push, o servidor manda o aviso de teste (prova que o caminho todo funciona).
+      if (Notifs.pushSupported()) {
+        try { await Notifs.pushEnable(true); }
+        catch (e) { Notifs.push = false; toast(t("nt.br.pushFail", { msg: e.message || String(e) }), "err"); }
+      }
+      if (!Notifs.push) try { new Notification(t("nt.br.testTitle"), { body: t("nt.br.testBody"), icon: "/icon-192.png" }); } catch {}
+    } else {
+      Notifs.setBrowser(false);
+      await Notifs.pushDisable();
+    }
     renderNotifySettings();
   });
   // e-mail
