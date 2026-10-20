@@ -474,3 +474,50 @@ kbd{font-family:ui-monospace,monospace;font-size:11.5px;background:var(--graphit
 html.is-fs .review{z-index:60}
 html.is-fs .rv-body{padding-bottom:12px}
 @media(max-width:860px){ .rv-keys span{display:none} }
+
+/* ---- Notificacoes: sino, lista e configuracao ---- */
+.brand-txt{flex:1;min-width:0}
+.bell{position:relative;background:none;border:1px solid var(--line);color:var(--ink);width:36px;height:36px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;cursor:pointer;flex:0 0 auto}
+.bell:hover{border-color:var(--royal)}
+.bell-n{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--danger);
+  color:#fff;font:700 10.5px/18px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;text-align:center;box-shadow:0 0 0 2px var(--charcoal)}
+.notif-pop{position:fixed;z-index:96;width:380px;max-width:calc(100vw - 16px);max-height:min(560px,calc(100vh - 24px));display:flex;flex-direction:column;
+  background:var(--charcoal);border:1px solid var(--line);border-radius:14px;box-shadow:0 18px 48px rgba(0,0,0,.6);overflow:hidden}
+.nt-head{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.nt-head b{font-size:14px}
+.nt-acts{display:flex;gap:12px}
+.nt-acts .linkbtn,.nt-head .linkbtn{font-size:12px}
+.nt-list{overflow:auto;padding:4px}
+.nt-item{display:flex;align-items:flex-start;gap:10px;width:100%;text-align:left;background:none;border:0;border-radius:10px;
+  padding:10px;color:var(--ink);cursor:pointer;font:inherit}
+.nt-item:hover{background:var(--graphite)}
+.nt-item.unread{background:rgba(26,77,255,.07)}
+.nt-item.unread:hover{background:rgba(26,77,255,.14)}
+.nt-ic{flex:0 0 auto;width:26px;height:26px;border-radius:8px;background:var(--graphite);display:inline-flex;align-items:center;justify-content:center;font-size:13px}
+.nt-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.nt-line{font-size:13px;line-height:1.4;color:#d4d4dc}
+.nt-line b{color:var(--ink)}
+.nt-text{font-size:12.5px;color:var(--ink);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.nt-meta{font-size:11px;color:var(--muted)}
+.nt-dot{flex:0 0 auto;width:8px;height:8px;border-radius:50%;background:var(--royal);margin-top:6px;box-shadow:0 0 8px var(--royal)}
+.nt-settings{max-width:720px}
+.nt-table{width:100%;border-collapse:separate;border-spacing:0;background:var(--charcoal);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.nt-table th{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);font-weight:500;padding:10px 14px;text-align:left;
+  border-bottom:1px solid var(--line);font-family:ui-monospace,monospace}
+.nt-table td{padding:11px 14px;border-bottom:1px solid var(--line);font-size:13.5px;vertical-align:middle}
+.nt-table tr:last-child td{border-bottom:none}
+.nt-table td small{display:block;color:var(--muted);font-size:12px;margin:3px 0 0 34px}
+.nt-table .c{text-align:center;width:90px}
+.nt-table input{width:17px;height:17px;accent-color:var(--royal);cursor:pointer}
+.nt-card{background:var(--charcoal);border:1px solid var(--line);border-radius:var(--radius);padding:16px;display:flex;flex-direction:column;gap:14px}
+.nt-status{font-size:12px;color:var(--muted);margin-left:27px}
+.nt-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.nt-grid label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--muted)}
+.nt-grid .fld{padding:10px 11px;font-size:13px}
+.nt-grid label.check{flex-direction:row;align-items:center;align-self:end;padding-bottom:10px;color:var(--ink)}
+.nt-smtp summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--ink);padding:2px 0}
+.nt-smtp[open] summary{margin-bottom:10px}
+.nt-err{margin:0;color:var(--danger);font-size:12.5px;line-height:1.45}
+.nt-acts2{margin-top:0}
+@media(max-width:760px){ .nt-grid{grid-template-columns:1fr} .nt-table .c{width:64px} .nt-table td small{margin-left:0} }

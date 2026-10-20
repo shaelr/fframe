@@ -33,12 +33,14 @@
 <div id="app" class="app hidden">
   <div id="scrim" class="scrim"></div>
   <aside id="side">
-    <div class="brand"><span class="dot"></span><div><b>Fframe</b><span id="host">frame.io</span></div></div>
+    <div class="brand"><span class="dot"></span><div class="brand-txt"><b>Fframe</b><span id="host">frame.io</span></div>
+      <button id="bell" class="bell" type="button" data-i18n-aria="nt.title" aria-label="Notifications"><svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true"><path d="M12 3.5a5.5 5.5 0 0 0-5.5 5.5v3.2L5 15.5h14l-1.5-3.3V9A5.5 5.5 0 0 0 12 3.5zM9.8 18a2.3 2.3 0 0 0 4.4 0" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg><span class="bell-n" id="bell-n" hidden>0</span></button></div>
     <div class="side-h" data-i18n="side.projects">Projetos</div>
     <div id="projects"></div>
     <button id="new-proj" class="newbtn" type="button" data-i18n="side.newProject">＋ Novo Projeto</button>
     <div class="side-h" data-i18n="side.settings">Configurações</div>
     <div id="nav-library" class="proj hidden"><span class="nm" data-i18n="side.library">📁 Biblioteca</span></div>
+    <div id="nav-notify" class="proj"><span class="nm" data-i18n="side.notify">🔔 Notifications</span></div>
     <div id="nav-devices" class="proj"><span class="nm" data-i18n="side.devices">📱 Dispositivos</span></div>
     <div class="foot">
       <div id="total">—</div>

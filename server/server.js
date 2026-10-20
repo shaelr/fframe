@@ -21,6 +21,7 @@ const crypto = require("crypto");
 const store = require("./lib/store");
 const library = require("./lib/library");
 const transcript = require("./lib/transcript");
+const notify = require("./lib/notify");
 
 const PORT = process.env.PORT || 3000;
 // Base publica usada para montar as upload_urls. Em producao aponte para o host
@@ -549,6 +550,7 @@ app.patch("/_api/assets/:id/comments/:cid", requireAuth, (req, res) => {
   res.status(ok ? 200 : 404).json({ ok });
 });
 app.delete("/_api/assets/:id/comments/:cid", requireAuth, (req, res) => {
+  notify.forgetComment(req.params.cid);
   const ok = store.deleteComment(req.params.id, req.params.cid);
   res.status(ok ? 200 : 404).json({ ok });
 });
@@ -637,6 +639,20 @@ app.patch("/_api/projects/:id/share", requireAdminSession, (req, res) => {
   res.json(sh);
 });
 
+// ---- Notificacoes (so o admin) ---------------------------------------------
+app.get("/_api/notifications", requireAdminSession, (req, res) =>
+  res.json(notify.list({ limit: Number(req.query.limit) || 50, before: req.query.before })));
+app.post("/_api/notifications/read", requireAdminSession, (req, res) =>
+  res.json({ ok: true, marked: notify.markRead(req.body || {}) }));
+app.get("/_api/notify/settings", requireAdminSession, (req, res) =>
+  res.json({ ...notify.publicSettings(), last_error: notify.lastError(), public_base: PUBLIC_BASE }));
+app.put("/_api/notify/settings", requireAdminSession, (req, res) =>
+  res.json({ ...notify.updateSettings(req.body || {}), last_error: notify.lastError(), public_base: PUBLIC_BASE }));
+app.post("/_api/notify/test-email", requireAdminSession, async (req, res) => {
+  try { await notify.sendTest(PUBLIC_BASE); res.json({ ok: true }); }
+  catch (e) { res.status(400).json({ ok: false, error: String(e.message || e).slice(0, 300) }); }
+});
+
 // Recursos do projeto (capitulos, transcricao) — valem para admin e cliente.
 app.patch("/_api/projects/:id/settings", requireAdminSession, (req, res) => {
   const st = store.updateSettings(req.params.id, req.body || {});
@@ -697,6 +713,26 @@ const shareSettings = (req) => {
   };
 };
 
+// Atividade do cliente -> notificacao (nome vem do proprio cliente).
+function noteGuest(req, type, extra) {
+  let raw = String(req.headers["x-guest-name"] || req.query.n || "");   // downloads sao links: nome vem em ?n=
+  try { raw = decodeURIComponent(raw); } catch {}
+  const name = raw.replace(/\s+/g, " ").trim().slice(0, 60) || "A client";
+  const who = req.guestHash ? req.guestHash.slice(0, 16) : req.ip;
+  notify.record({ type, actor: name, project_id: req.shareProject.id, project_name: req.shareProject.name,
+    asset_id: req.asset ? req.asset.id : null, asset_name: req.asset ? req.asset.name : "",
+    ...extra, dedupe: extra && extra.dedupe ? `${extra.dedupe}:${who}` : undefined });
+}
+// O painel do cliente avisa quando abre o projeto / um video.
+app.post("/_s/:token/visit", shareCtx, guestLimit, (req, res) => {
+  noteGuest(req, "visit", { dedupe: "visit:" + req.shareProject.id });
+  res.json({ ok: true });
+});
+app.post("/_s/:token/assets/:id/view", shareCtx, shareAsset, guestLimit, (req, res) => {
+  noteGuest(req, "view", { dedupe: "view:" + req.asset.id });
+  res.json({ ok: true });
+});
+
 app.get("/_s/:token/info", shareCtx, (req, res) =>
   res.json({ project: req.shareProject.name, ...shareSettings(req) }));
 app.get("/_s/:token/assets", shareCtx, (req, res) => {
@@ -715,10 +751,12 @@ app.get("/_s/:token/assets", shareCtx, (req, res) => {
 app.get("/_s/:token/media/:id", shareCtx, shareAsset, (req, res) => sendMedia(req, res, req.asset));
 app.get("/_s/:token/download/:id", shareCtx, shareAsset, (req, res) => {
   if (!req.share.allow_download_video || !req.asset.stored_path || !fs.existsSync(req.asset.stored_path)) return res.status(404).end();
+  noteGuest(req, "download", { kind: "video", dedupe: "dl:v:" + req.asset.id });
   res.download(req.asset.stored_path, req.asset.name);
 });
 app.get("/_s/:token/transcript/:id", shareCtx, shareAsset, (req, res) => {
   if (!shareSettings(req).allow_download_transcript) return res.status(404).end();
+  noteGuest(req, "download", { kind: "transcript", dedupe: "dl:t:" + req.asset.id });
   sendTranscriptDoc(res, req.asset);
 });
 app.get("/_s/:token/assets/:id/chapters", shareCtx, shareAsset, (req, res) =>
@@ -740,12 +778,17 @@ app.post("/_s/:token/assets/:id/comments", shareCtx, shareAsset, guestLimit, (re
   const c = store.addComment(req.asset.id, { t: b.t, tEnd: b.t_end, parentId: b.parent_id, text: b.text, author: name, guestHash: req.guestHash });
   if (!c) return res.status(400).json({ error: "text is required" });
   log(`    COMENTARIO de convidado "${name}" em "${req.asset.name}"`);
+  const parent = c.parent_id ? store.listComments(req.asset.id).find((x) => x.id === c.parent_id) : null;
+  notify.record({ type: c.parent_id ? "reply" : "comment", actor: name, text: c.text, t: c.t, comment_id: c.id,
+    project_id: req.shareProject.id, project_name: req.shareProject.name, asset_id: req.asset.id, asset_name: req.asset.name,
+    kind: parent ? parent.author : null });
   res.status(201).json(publicComment(c, req.guestHash));
 });
 // Convidado so apaga o PROPRIO comentario.
 app.delete("/_s/:token/assets/:id/comments/:cid", shareCtx, shareAsset, (req, res) => {
   const c = store.listComments(req.asset.id).find((x) => x.id === req.params.cid);
   if (!c || !req.guestHash || c.guest_hash !== req.guestHash) return res.status(403).json({ error: "only the author can delete this" });
+  notify.forgetComment(c.id);
   res.json({ ok: store.deleteComment(req.asset.id, c.id) });
 });
 
@@ -936,6 +979,7 @@ app.listen(PORT, "0.0.0.0", () => {
   log(`  PUBLIC_BASE = ${PUBLIC_BASE}`);
   log(`  Projetos: ${store.listProjects().map((p) => p.name).join(", ")}`);
   log(`  Painel:  ${PUBLIC_BASE}/`);
+  notify.start(PUBLIC_BASE, log);
   if (library.enabled()) {
     log(`  Biblioteca: ${library.LIBRARY_DIR} (reindexando pastas vinculadas...)`);
     library.scanAll().then(() => log("  Biblioteca: reindexacao concluida"));

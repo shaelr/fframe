@@ -97,6 +97,19 @@ Comments from Fframe, yours and your clients', come back into Resolve as **red m
 **Option B: no script, timeline only**
 In the Fframe player, click **⤓ Resolve**, enter the timeline's frame rate and start timecode, and download the `.edl`. Then in Resolve, open the timeline and use **Timeline → Import → Timeline Markers from EDL**. Use this for a one-off. Importing again adds a second copy instead of updating.
 
+## Notifications
+
+Fframe tells you when clients act on your share links. Your own activity never notifies you.
+
+- **🔔 Bell** (top of the sidebar): the number shows unread activity, which also appears in the browser tab's title. Click it to see the list, then click an item to jump to that exact moment in the video, with the comment highlighted. **Mark all read** clears the count.
+- **🔔 Notifications** (sidebar, under Settings) chooses what you're told about, **In app** and by **Email** separately: new comments, replies, downloads, videos watched and the project link being opened.
+- **Browser notifications:** turn on **Show browser notifications** and allow it when the browser asks. While Fframe is open in a tab you're not looking at, new activity pops up as a system notification. This is set per browser, so turn it on in each one you use.
+- **Email:** turn on **Send email notifications**, enter who to send to, and choose **Right away** (several comments in a row arrive as one email), **Hourly summary** or **Daily summary**. Then fill in your mail server under **Mail server (SMTP)** and click **Send test email**.
+  - Gmail: server `smtp.gmail.com`, port `465`, SSL/TLS on, your Gmail address as the username, and an [app password](https://myaccount.google.com/apppasswords) (not your normal password).
+  - Microsoft 365 / Outlook: server `smtp.office365.com`, port `587`, SSL/TLS off.
+  - Links in emails use `PUBLIC_BASE` from the YAML, so set it to the address you open Fframe at (for example `https://review.sixfeatmedia.com`).
+  - The daily summary uses the timezone in the YAML (`TZ`). Set it to yours, for example `America/Toronto`.
+
 ## Project settings
 
 Click **⚙ Settings** in a project to turn **Chapters** or **Transcripts** off for projects that don't use them. They're hidden for you and for anyone viewing the share link, including the tabs, the chapter buttons and the transcript download. Your data isn't deleted, so turning a setting back on brings everything back.

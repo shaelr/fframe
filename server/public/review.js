@@ -667,7 +667,11 @@ const Review = {
         `<div class="key-row"><span class="key-k">${k.split(" / ").map((x) => x.split(" + ").map((y) => `<kbd>${escapeHtml(y)}</kbd>`).join("+")).join(" ")}</span><span class="key-d">${escapeHtml(d)}</span></div>`).join("")}</div>`);
     }
     el("rv-keys").addEventListener("click", showShortcuts);
-    video.addEventListener("loadedmetadata", () => { duration = video.duration || 0; updateTC(); updateScrub(); renderPins(); renderChapterTicks(); updateChip(); });
+    let startAt = Number.isFinite(ctx.startAt) ? ctx.startAt : null;   // link de notificacao: ?t=
+    video.addEventListener("loadedmetadata", () => {
+      duration = video.duration || 0; updateTC(); updateScrub(); renderPins(); renderChapterTicks(); updateChip();
+      if (startAt != null) { seek(startAt); startAt = null; }
+    });
     video.addEventListener("timeupdate", () => {
       updateTC(); updateScrub(); syncWord(false); syncChapter(false);
       if (composeTime == null) updateChip();
@@ -723,7 +727,12 @@ const Review = {
       if (!alive) return;
       let saved = null; try { saved = localStorage.getItem("fframe.sideTab"); } catch {}
       const visible = (tab) => { const b = q(`.side-tab[data-tab="${tab}"]`); return b && !b.hidden; };
-      setTab(saved && visible(saved) ? saved : chapters.length ? "ch" : "cmt");
+      setTab(ctx.focusComment ? "cmt" : saved && visible(saved) ? saved : chapters.length ? "ch" : "cmt");
+      if (ctx.focusComment) {                               // link de notificacao: ?c=
+        const c = comments.find((x) => x.id === ctx.focusComment);
+        const top = c && c.parent_id ? c.parent_id : c && c.id;
+        if (top) setTimeout(() => highlight(top, true), 50);
+      }
     });
     setTab("cmt");
 

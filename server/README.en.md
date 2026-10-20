@@ -74,6 +74,10 @@ Routes: `GET /_api/assets/:id/transcript` (login), `PUT`/`PATCH`/`DELETE` same p
 - **Transcript export**: `GET /_api/assets/:id/transcript.doc` (and `/_s/<token>/transcript/<id>` when allowed) returns a Word-compatible `.doc`.
 - **Share links** (`project.share` in `data/projects.json`): `GET/PATCH /_api/projects/:id/share` (admin session) with `enabled`, `allow_comments`, `allow_download_video`, `allow_download_transcript`, `regenerate`. Clients use `/_s/<token>/…` (info, assets, media, download, chapters, transcript, comments). Every request is checked against the token's project and settings. A guest is identified by a random `X-Guest-Id`, stored only as a hash, so they can delete only their own comments. The token is redacted from the request log.
 
+## Notifications
+
+`lib/notify.js` records client activity on share links (`comment`, `reply`, `download`, `view`, `visit`) in `data/notifications.json`, and sends email through SMTP (nodemailer): right away (grouped after a minute of quiet), hourly, or daily at a chosen hour (`TZ`). Settings live in `data/notify.json`; the SMTP password is never returned to the browser. Admin-only routes: `GET /_api/notifications`, `POST /_api/notifications/read`, `GET/PUT /_api/notify/settings`, `POST /_api/notify/test-email`. The panel polls every 20 s for the bell and for browser notifications (per browser, via the Notification API while a tab is open).
+
 ## Comments back to Resolve
 
 - `GET /_api/resolve/comments[?project=]` (session or device key): every video with comments, top-level comments with replies, with `guest` for comments left through a share link. Used by [`tools/resolve/Import Fframe Comments.py`](../tools/resolve/Import%20Fframe%20Comments.py), which syncs them as red clip or timeline markers. Each marker is tagged `customData = "fframe:<commentId>"`, so re-running updates or removes them.

@@ -5,6 +5,7 @@
 
 let projects = [], current = null, configured = false;
 const DEVICES_VIEW = "__devices__"; // valor especial de `current` p/ tela Dispositivos
+const NOTIFY_VIEW = "__notify__";   // tela de configuracao das notificacoes
 const LIBRARY_VIEW = "__library__"; // tela Biblioteca (pastas do NAS)
 let libraryPath = "";               // pasta aberta no navegador da Biblioteca
 
@@ -144,6 +145,7 @@ function showApp() {
   $("app").classList.remove("hidden");
   $("host").textContent = location.host;
   route();
+  Notifs.start();
   // Biblioteca so aparece se o share estiver montado (e so p/ sessao de admin).
   fetch("/_api/library/status").then((r) => r.ok ? r.json() : null)
     .then((s) => $("nav-library").classList.toggle("hidden", !(s && s.enabled))).catch(() => {});
@@ -199,10 +201,12 @@ async function render() {
   await loadProjects();
   $("nav-devices").classList.toggle("active", current === DEVICES_VIEW);
   $("nav-library").classList.toggle("active", current === LIBRARY_VIEW);
+  $("nav-notify").classList.toggle("active", current === NOTIFY_VIEW);
   $("tr-import").classList.add("hidden");
   $("share-btn").classList.add("hidden");
   $("settings-btn").classList.add("hidden");
   if (current === DEVICES_VIEW) return renderDevices();
+  if (current === NOTIFY_VIEW) return renderNotifySettings();
   if (current === LIBRARY_VIEW) return renderLibrary();
   const proj = projects.find((p) => p.id === current);
   $("title").textContent = proj ? proj.name : t("title.allVideos");
@@ -320,6 +324,8 @@ async function openAdminReview(id) {
       chapters: `${base}/chapters`, transcript: `${base}/transcript`, transcriptDoc: `${base}/transcript.doc`, edl: `${base}/markers.edl` },
     features: projectFeatures(a.project_id),
     canComment: true,
+    startAt: (() => { const v = parseFloat(new URLSearchParams(location.search).get("t")); return Number.isFinite(v) ? v : undefined; })(),
+    focusComment: new URLSearchParams(location.search).get("c") || null,
     backLabel: a.project_name || t("title.allVideos"),
     onBack: () => { document.title = "Fframe"; if (history.state && history.state.app) history.back(); else navigate("/"); },
   });
@@ -809,7 +815,7 @@ const Share = {
   },
   guestName() { try { return (localStorage.getItem("fframe.guestName") || "").trim(); } catch { return ""; } },
   call(method, url, body) {
-    const opt = { method, headers: { "X-Guest-Id": Share.guestId() } };
+    const opt = { method, headers: { "X-Guest-Id": Share.guestId(), "X-Guest-Name": encodeURIComponent(Share.guestName()) } };
     if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
     return fetch(url, opt);
   },
@@ -850,7 +856,7 @@ const Share = {
     $("app").classList.add("hidden");
     const box = $("share");
     if (Share.token !== token || !Share.info) {
-      Share.token = token; Share.info = null; Share.assets = null;
+      Share.token = token; Share.info = null; Share.assets = null; Share.visited = false;
       const r = await fetch(`/_s/${encodeURIComponent(token)}/info`).catch(() => null);
       if (!r || !r.ok) {
         box.classList.remove("hidden");
@@ -861,6 +867,7 @@ const Share = {
       Share.info = await r.json();
     }
     if (!Share.guestName()) await Share.askName();
+    if (!Share.visited) { Share.visited = true; Share.call("POST", `/_s/${encodeURIComponent(token)}/visit`).catch(() => {}); }
     if (!Share.assets) {
       const r = await Share.call("GET", `/_s/${encodeURIComponent(token)}/assets`);
       Share.assets = r.ok ? await r.json() : [];
@@ -869,9 +876,9 @@ const Share = {
     Share.gallery();
   },
   dlUrls(a) {
-    const tk = encodeURIComponent(Share.token);
-    return { video: Share.info.allow_download_video ? `/_s/${tk}/download/${a.id}` : null,
-      transcript: Share.info.allow_download_transcript ? `/_s/${tk}/transcript/${a.id}` : null };
+    const tk = encodeURIComponent(Share.token), who = "?n=" + encodeURIComponent(Share.guestName());
+    return { video: Share.info.allow_download_video ? `/_s/${tk}/download/${a.id}${who}` : null,
+      transcript: Share.info.allow_download_transcript ? `/_s/${tk}/transcript/${a.id}${who}` : null };
   },
   header() {
     return `<header class="share-top">
@@ -921,6 +928,7 @@ const Share = {
     box.classList.remove("hidden");
     document.title = a.name + " · " + Share.info.project;
     const base = `/_s/${tk}/assets/${encodeURIComponent(assetId)}`;
+    Share.call("POST", `${base}/view`).catch(() => {});
     reviewHandle = Review.open(box, {
       id: assetId, name: a.name, admin: false, call: Share.call,
       urls: { media: `/_s/${tk}/media/${assetId}`, download: Share.dlUrls(a).video, transcriptDoc: Share.dlUrls(a).transcript,
@@ -935,6 +943,234 @@ const Share = {
   },
 };
 
+// =============================================================================
+// NOTIFICACOES (admin): sino com o que os clientes fizeram, alerta do navegador
+// e a tela de configuracao (no app / e-mail por tipo de evento).
+// =============================================================================
+const NOTIF_ICON = { comment: "💬", reply: "↩", download: "⤓", view: "▶", visit: "👋" };
+const relTime = (iso) => {
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  if (s < 60) return t("nt.now");
+  if (s < 3600) return t("nt.min", { n: Math.floor(s / 60) });
+  if (s < 86400) return t("nt.hour", { n: Math.floor(s / 3600) });
+  if (s < 7 * 86400) return t("nt.day", { n: Math.floor(s / 86400) });
+  return fmtDay(iso);
+};
+function notifLine(n) {
+  const at = n.t != null ? ` ${t("nt.at", { time: fmtClock(n.t) })}` : "";
+  switch (n.type) {
+    case "comment": return t("nt.comment", { video: n.asset_name }) + at;
+    case "reply": return t("nt.reply", { video: n.asset_name }) + at;
+    case "download": return t(n.kind === "transcript" ? "nt.downloadTr" : "nt.download", { video: n.asset_name });
+    case "view": return t("nt.view", { video: n.asset_name });
+    case "visit": return t("nt.visit", { project: n.project_name });
+    default: return "";
+  }
+}
+const Notifs = {
+  items: [], unread: 0, seen: new Set(), primed: false, timer: null,
+  browserOn() { try { return localStorage.getItem("fframe.browserNotify") === "1"; } catch { return false; } },
+  setBrowser(on) { try { localStorage.setItem("fframe.browserNotify", on ? "1" : "0"); } catch {} },
+  start() {
+    if (this.timer) return;
+    this.poll();
+    this.timer = setInterval(() => this.poll(), 20000);
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) this.poll(); });
+  },
+  async poll() {
+    let d;
+    try { const r = await fetch("/_api/notifications?limit=40"); if (!r.ok) return; d = await r.json(); } catch { return; }
+    const fresh = d.items.filter((n) => !this.seen.has(n.id));
+    d.items.forEach((n) => this.seen.add(n.id));
+    this.items = d.items; this.unread = d.unread;
+    this.paintBadge();
+    if ($("notif-pop")) this.paintList();
+    // so avisa do que chegou DEPOIS de abrir o painel (nao do historico)
+    if (this.primed) fresh.filter((n) => !n.read).reverse().forEach((n) => this.alert(n));
+    this.primed = true;
+  },
+  paintBadge() {
+    const b = $("bell-n");
+    b.hidden = !this.unread;
+    b.textContent = this.unread > 99 ? "99+" : String(this.unread);
+    $("bell").title = this.unread ? t("nt.unread", { n: this.unread }) : t("nt.title");
+    document.title = document.title.replace(/^\(\d+\+?\) /, "");
+    if (this.unread) document.title = `(${this.unread}) ` + document.title;
+  },
+  alert(n) {
+    const title = `${n.actor} · ${n.project_name}`;
+    const body = notifLine(n) + (n.text ? `\n“${n.text}”` : "");
+    const away = document.hidden || !document.hasFocus();
+    if (this.browserOn() && away && "Notification" in window && Notification.permission === "granted") {
+      try {
+        const bn = new Notification(title, { body, icon: "/icon-192.png", tag: n.id });
+        bn.onclick = () => { window.focus(); this.open(n); bn.close(); };
+      } catch {}
+    } else if (!away) toast(`${NOTIF_ICON[n.type] || "🔔"} ${n.actor} ${notifLine(n).replace(/^\S/, (c) => c.toLowerCase())}`);
+  },
+  async open(n) {
+    closeNotifPop();
+    if (!n.read) { n.read = true; this.unread = Math.max(0, this.unread - 1); this.paintBadge(); fetch("/_api/notifications/read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [n.id] }) }).catch(() => {}); }
+    if (n.asset_id && n.type !== "visit") {
+      const q = [];
+      if (n.t != null) q.push("t=" + n.t.toFixed(2));
+      if (n.comment_id) q.push("c=" + encodeURIComponent(n.comment_id));
+      navigate(`/v/${encodeURIComponent(n.asset_id)}${q.length ? "?" + q.join("&") : ""}`);
+    } else if (n.project_id) { current = n.project_id; navigate("/"); }
+  },
+  async readAll() {
+    await fetch("/_api/notifications/read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ all: true }) }).catch(() => {});
+    this.items.forEach((n) => (n.read = true)); this.unread = 0; this.paintBadge(); this.paintList();
+  },
+  toggle() { if ($("notif-pop")) closeNotifPop(); else this.openPop(); },
+  openPop() {
+    const pop = document.createElement("div");
+    pop.id = "notif-pop"; pop.className = "notif-pop"; pop.setAttribute("role", "dialog");
+    document.body.appendChild(pop);
+    this.paintList();
+    const r = $("bell").getBoundingClientRect();
+    pop.style.top = Math.max(8, r.top) + "px";
+    pop.style.left = Math.min(window.innerWidth - pop.offsetWidth - 8, r.right + 10) + "px";
+    if (window.innerWidth < 760) { pop.style.left = "8px"; pop.style.top = (r.bottom + 8) + "px"; }
+    setTimeout(() => document.addEventListener("pointerdown", notifOutside, true), 0);
+    document.addEventListener("keydown", notifEsc, true);
+    this.poll();
+  },
+  paintList() {
+    const pop = $("notif-pop");
+    if (!pop) return;
+    const rows = this.items.map((n, i) => `<button class="nt-item${n.read ? "" : " unread"}" type="button" data-i="${i}">
+        <span class="nt-ic">${NOTIF_ICON[n.type] || "🔔"}</span>
+        <span class="nt-main">
+          <span class="nt-line"><b>${escapeHtml(n.actor)}</b> ${escapeHtml(notifLine(n))}</span>
+          ${n.text ? `<span class="nt-text">“${escapeHtml(n.text)}”</span>` : ""}
+          <span class="nt-meta">${escapeHtml(n.project_name)} · ${escapeHtml(relTime(n.at))}</span>
+        </span>
+        ${n.read ? "" : `<span class="nt-dot" aria-label="${escapeHtml(t("nt.unreadOne"))}"></span>`}
+      </button>`).join("");
+    pop.innerHTML = `<div class="nt-head"><b>${escapeHtml(t("nt.title"))}</b>
+        <span class="nt-acts">${this.unread ? `<button class="linkbtn" type="button" id="nt-all">${escapeHtml(t("nt.readAll"))}</button>` : ""}
+        <button class="linkbtn" type="button" id="nt-set">${escapeHtml(t("nt.settings"))}</button></span></div>
+      <div class="nt-list">${rows || `<div class="cmt-empty">${escapeHtml(t("nt.empty"))}<br><span>${escapeHtml(t("nt.emptyHint"))}</span></div>`}</div>`;
+    pop.querySelectorAll(".nt-item").forEach((b) => b.addEventListener("click", () => this.open(this.items[+b.dataset.i])));
+    const all = pop.querySelector("#nt-all"); if (all) all.addEventListener("click", () => this.readAll());
+    pop.querySelector("#nt-set").addEventListener("click", () => { closeNotifPop(); current = NOTIFY_VIEW; if (location.pathname !== "/") navigate("/"); else render(); });
+  },
+};
+const notifOutside = (e) => { const p = $("notif-pop"); if (p && !p.contains(e.target) && !$("bell").contains(e.target)) closeNotifPop(); };
+const notifEsc = (e) => { if (e.key === "Escape" && $("notif-pop")) { e.stopPropagation(); closeNotifPop(); } };
+function closeNotifPop() {
+  const p = $("notif-pop"); if (p) p.remove();
+  document.removeEventListener("pointerdown", notifOutside, true);
+  document.removeEventListener("keydown", notifEsc, true);
+}
+
+// Tela de configuracao.
+async function renderNotifySettings() {
+  $("title").textContent = t("nt.settingsTitle");
+  $("count").textContent = "";
+  const r = await api("GET", "/_api/notify/settings");
+  const st = await r.json().catch(() => null);
+  if (!r.ok || !st) { $("content").innerHTML = `<div class="empty">${escapeHtml(t("share.fail"))}</div>`; return; }
+  const em = st.email, smtp = em.smtp;
+  const perm = "Notification" in window ? Notification.permission : "unsupported";
+  const browserState = perm === "unsupported" ? t("nt.br.unsupported") : perm === "denied" ? t("nt.br.denied")
+    : perm === "granted" && Notifs.browserOn() ? t("nt.br.on") : t("nt.br.off");
+  const evRows = st.types.map((k) => `<tr>
+      <td><span class="nt-ic">${NOTIF_ICON[k]}</span> <b>${escapeHtml(t("nt.ev." + k))}</b><small>${escapeHtml(t("nt.ev." + k + "Hint"))}</small></td>
+      <td class="c"><input type="checkbox" data-ev="${k}" data-ch="app"${st.events[k].app ? " checked" : ""} aria-label="${escapeHtml(t("nt.col.app"))}" /></td>
+      <td class="c"><input type="checkbox" data-ev="${k}" data-ch="email"${st.events[k].email ? " checked" : ""} aria-label="${escapeHtml(t("nt.col.email"))}" /></td>
+    </tr>`).join("");
+  const hours = Array.from({ length: 24 }, (_, h) => `<option value="${h}"${h === em.daily_hour ? " selected" : ""}>${String(h).padStart(2, "0")}:00</option>`).join("");
+  $("content").innerHTML = `<div class="nt-settings">
+    <p class="dev-hint">${escapeHtml(t("nt.intro"))}</p>
+
+    <div class="side-h lib-h">${escapeHtml(t("nt.sec.events"))}</div>
+    <table class="nt-table"><thead><tr><th></th><th class="c">${escapeHtml(t("nt.col.app"))}</th><th class="c">${escapeHtml(t("nt.col.email"))}</th></tr></thead>
+      <tbody>${evRows}</tbody></table>
+
+    <div class="side-h lib-h">${escapeHtml(t("nt.sec.browser"))}</div>
+    <div class="nt-card">
+      <label class="switch-row"><input type="checkbox" id="nt-br"${Notifs.browserOn() && perm === "granted" ? " checked" : ""}${perm === "unsupported" || perm === "denied" ? " disabled" : ""} />
+        <span><b>${escapeHtml(t("nt.br.label"))}</b><small>${escapeHtml(t("nt.br.hint"))}</small></span></label>
+      <div class="nt-status">${escapeHtml(browserState)}</div>
+    </div>
+
+    <div class="side-h lib-h">${escapeHtml(t("nt.sec.email"))}</div>
+    <form class="nt-card" id="nt-email" autocomplete="off">
+      <label class="switch-row"><input type="checkbox" name="enabled"${em.enabled ? " checked" : ""} />
+        <span><b>${escapeHtml(t("nt.em.enable"))}</b><small>${escapeHtml(t("nt.em.enableHint"))}</small></span></label>
+      <div class="nt-grid">
+        <label>${escapeHtml(t("nt.em.to"))}<input class="fld" name="to" type="text" value="${escapeHtml(em.to)}" placeholder="you@example.com, editor@example.com" /></label>
+        <label>${escapeHtml(t("nt.em.mode"))}<select class="fld" name="mode">
+          <option value="instant"${em.mode === "instant" ? " selected" : ""}>${escapeHtml(t("nt.em.instant"))}</option>
+          <option value="hourly"${em.mode === "hourly" ? " selected" : ""}>${escapeHtml(t("nt.em.hourly"))}</option>
+          <option value="daily"${em.mode === "daily" ? " selected" : ""}>${escapeHtml(t("nt.em.daily"))}</option></select></label>
+        <label class="nt-hour"${em.mode === "daily" ? "" : " hidden"}>${escapeHtml(t("nt.em.hour"))}<select class="fld" name="daily_hour">${hours}</select></label>
+      </div>
+      <details class="nt-smtp"${smtp.host ? "" : " open"}><summary>${escapeHtml(t("nt.smtp.title"))}${smtp.host ? ` · ${escapeHtml(smtp.host)}` : ""}</summary>
+        <p class="dev-note">${escapeHtml(t("nt.smtp.hint"))}</p>
+        <div class="nt-grid">
+          <label>${escapeHtml(t("nt.smtp.host"))}<input class="fld" name="host" type="text" value="${escapeHtml(smtp.host)}" placeholder="smtp.gmail.com" /></label>
+          <label>${escapeHtml(t("nt.smtp.port"))}<input class="fld" name="port" type="number" value="${escapeHtml(smtp.port)}" /></label>
+          <label class="check nt-ssl"><input type="checkbox" name="secure"${smtp.secure ? " checked" : ""} /> <span>${escapeHtml(t("nt.smtp.secure"))}</span></label>
+          <label>${escapeHtml(t("nt.smtp.user"))}<input class="fld" name="user" type="text" value="${escapeHtml(smtp.user)}" autocomplete="off" /></label>
+          <label>${escapeHtml(t("nt.smtp.pass"))}<input class="fld" name="pass" type="password" value="" placeholder="${escapeHtml(smtp.has_pass ? t("nt.smtp.passSaved") : "")}" autocomplete="new-password" /></label>
+          <label>${escapeHtml(t("nt.smtp.from"))}<input class="fld" name="from" type="text" value="${escapeHtml(smtp.from)}" placeholder="Fframe &lt;you@example.com&gt;" /></label>
+        </div>
+      </details>
+      ${st.last_error ? `<p class="nt-err">${escapeHtml(t("nt.em.lastError", { when: fmtDay(st.last_error.at) + " " + fmtTime(st.last_error.at), msg: st.last_error.message }))}</p>` : ""}
+      <p class="dev-note">${escapeHtml(t("nt.em.links", { base: st.public_base }))}</p>
+      <div class="modal-acts nt-acts2">
+        <button class="btn-ghost" type="button" id="nt-test">${escapeHtml(t("nt.em.test"))}</button>
+        <button class="btn-primary" type="submit">${escapeHtml(t("nt.em.save"))}</button>
+      </div>
+    </form>
+  </div>`;
+  const content = $("content");
+  // eventos: salva na hora
+  content.querySelectorAll("[data-ev]").forEach((c) => c.addEventListener("change", async () => {
+    const rr = await api("PUT", "/_api/notify/settings", { events: { [c.dataset.ev]: { [c.dataset.ch]: c.checked } } });
+    if (!rr.ok) { c.checked = !c.checked; toast(t("share.fail"), "err"); }
+  }));
+  // navegador (por navegador)
+  const br = $("nt-br");
+  if (br) br.addEventListener("change", async () => {
+    if (br.checked) {
+      let p = Notification.permission;
+      if (p === "default") p = await Notification.requestPermission();
+      if (p !== "granted") { br.checked = false; Notifs.setBrowser(false); toast(t("nt.br.denied"), "err"); return renderNotifySettings(); }
+      Notifs.setBrowser(true);
+      try { new Notification(t("nt.br.testTitle"), { body: t("nt.br.testBody"), icon: "/icon-192.png" }); } catch {}
+    } else Notifs.setBrowser(false);
+    renderNotifySettings();
+  });
+  // e-mail
+  const form = $("nt-email");
+  form.elements.mode.addEventListener("change", () => { form.querySelector(".nt-hour").hidden = form.elements.mode.value !== "daily"; });
+  const emailPatch = () => {
+    const f = form.elements;
+    return { email: { enabled: f.enabled.checked, to: f.to.value, mode: f.mode.value, daily_hour: f.daily_hour.value,
+      smtp: { host: f.host.value, port: f.port.value, secure: f.secure.checked, user: f.user.value, pass: f.pass.value, from: f.from.value } } };
+  };
+  form.elements.port.addEventListener("change", () => { if (form.elements.port.value === "465") form.elements.secure.checked = true; if (form.elements.port.value === "587") form.elements.secure.checked = false; });
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const rr = await api("PUT", "/_api/notify/settings", emailPatch());
+    toast(rr.ok ? t("nt.em.saved") : t("share.fail"), rr.ok ? "ok" : "err");
+    if (rr.ok) renderNotifySettings();
+  });
+  $("nt-test").addEventListener("click", async () => {
+    const b = $("nt-test"); b.disabled = true; b.textContent = t("nt.em.testing");
+    await api("PUT", "/_api/notify/settings", emailPatch());
+    const rr = await api("POST", "/_api/notify/test-email");
+    const d = await rr.json().catch(() => ({}));
+    b.disabled = false; b.textContent = t("nt.em.test");
+    if (rr.ok) toast(t("nt.em.testOk", { to: form.elements.to.value }), "ok");
+    else await dialog({ title: t("nt.em.testFail"), message: d.error || t("share.fail"), okText: t("modal.ok") });
+  });
+}
+
 // ---- Gaveta (mobile) --------------------------------------------------------
 const openDrawer = () => $("app").classList.add("open");
 const closeDrawer = () => $("app").classList.remove("open");
@@ -945,6 +1181,8 @@ $("logout").addEventListener("click", logout);
 $("new-proj").addEventListener("click", novoProjeto);
 $("nav-devices").addEventListener("click", () => { current = DEVICES_VIEW; closeDrawer(); render(); });
 $("nav-library").addEventListener("click", () => { current = LIBRARY_VIEW; closeDrawer(); render(); });
+$("nav-notify").addEventListener("click", () => { current = NOTIFY_VIEW; closeDrawer(); if (location.pathname !== "/") navigate("/"); else render(); });
+$("bell").addEventListener("click", (e) => { e.stopPropagation(); Notifs.toggle(); });
 $("tr-import").addEventListener("click", () => $("tr-import-file").click());
 $("share-btn").addEventListener("click", shareModal);
 $("settings-btn").addEventListener("click", settingsModal);

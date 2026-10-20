@@ -25,6 +25,8 @@ services:
       PUBLIC_BASE: "http://192.168.1.100:3260"
       CHUNK_SIZE: "26214400"
       LIBRARY_DIR: /library
+      # Your timezone (used for the daily notification email), e.g. America/Toronto,
+      # Europe/London. List: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones
       TZ: Etc/UTC
     volumes:
       - fframe-data:/app/data
